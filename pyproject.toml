@@ -1,0 +1,55 @@
+[project]
+name = "agent-db-safety"
+version = "0.0.0"
+description = "Runtime safety layer between AI agents and a database: deterministic policy, blast-radius simulation, and instant undo."
+readme = "README.md"
+requires-python = ">=3.11"
+
+# Runtime dependencies. Kept deliberately minimal -- everything here can end up
+# near the request path, so we add deps consciously (CLAUDE.md sec. 4, sec. 7).
+dependencies = [
+    # Real Postgres parser (libpg_query binding). Never regex/string matching
+    # for classification -- always the AST (CLAUDE.md sec. 6).
+    "pglast>=6,<8",
+    # Fast async Postgres driver. Async/no-blocking-I/O on the engine path.
+    "asyncpg>=0.29,<0.31",
+]
+
+[dependency-groups]
+# Dev-only tooling. Not installed in a production/runtime image.
+dev = [
+    "pytest>=8,<9",
+    # The engine is async end-to-end; async tests need this from Day 1.
+    "pytest-asyncio>=0.23,<0.25",
+    "ruff>=0.5,<1.0",
+    "black>=24,<26",
+]
+
+# ---------------------------------------------------------------------------
+# Tooling config
+# ---------------------------------------------------------------------------
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+# Sensible default set: pyflakes (F), pycodestyle (E/W), isort (I),
+# pyupgrade (UP), flake8-bugbear (B).
+select = ["E", "W", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["engine", "adapters"]

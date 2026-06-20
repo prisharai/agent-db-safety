@@ -221,3 +221,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+QA_REPORT.md
+
+# Project-private docs — kept out of the public GitHub repo
+docs/
+CLAUDE.md

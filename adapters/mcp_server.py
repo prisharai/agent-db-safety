@@ -1,9 +1,171 @@
-"""Phase A transport: MCP server.
+"""Phase A transport: MCP server (Day 1 -- pass-through + shadow mode).
 
 Exposes a ``run_query`` tool that agents (Claude Code, Cursor, ...) call as
-their database tool. Forwards statements to the engine and returns results.
-A thin shim only -- all parse/classify/policy/simulate/undo logic lives in
-``engine/`` (CLAUDE.md sec. 5).
+their database tool. Day 1 is deliberately a *pass-through*: every statement is
+forwarded to Postgres unchanged and the result returned unchanged. We **log
+every statement and block nothing** (shadow mode, CLAUDE.md sec. 8 Day 1). This
+is the baseline we benchmark against later and the traffic corpus we mine
+(sec. 10).
 
-Day 1 turns this into a pass-through + shadow-mode server. Stub only for now.
+Architecture (sec. 5): this adapter stays thin. The pass-through "session" below
+is pure forward-and-log with **zero policy** -- there is no policy engine yet.
+When Day 3 adds parse/classify/policy in ``engine/``, the decision moves there
+and this adapter calls into it; the transport code does not grow policy logic.
+
+Latency posture (sec. 4): the only request-path work here is a pool acquire +
+one round trip to Postgres (the unavoidable cost of running the query at all)
+plus a single non-blocking ``audit.record`` enqueue. Logging never blocks the
+query; see ``engine/audit.py``.
 """
+
+from __future__ import annotations
+
+import os
+import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from typing import Any
+
+import asyncpg
+from mcp.server.fastmcp import Context, FastMCP
+
+from engine.audit import AuditLog
+
+# --- Config (env-overridable; defaults match docker-compose.yml) -------------
+DB_DSN = os.environ.get(
+    "AGENT_DB_DSN",
+    "postgresql://postgres:postgres@localhost:5433/pagila",
+)
+AUDIT_LOG_PATH = os.environ.get("AGENT_AUDIT_LOG", "logs/audit.jsonl")
+# Pool is opened once at startup; per-query cost is just an acquire (cheap when
+# a connection is free). Sized small for dev.
+POOL_MIN_SIZE = int(os.environ.get("AGENT_POOL_MIN", "1"))
+POOL_MAX_SIZE = int(os.environ.get("AGENT_POOL_MAX", "10"))
+
+
+class ShadowSession:
+    """Pass-through + shadow-mode core: forward a statement, log it, return it.
+
+    Transport-agnostic by construction -- it depends only on an asyncpg pool and
+    an :class:`AuditLog`, not on MCP. That keeps it unit-testable without a live
+    MCP client (see ``tests/test_pass_through.py``).
+    """
+
+    def __init__(self, pool: asyncpg.Pool, audit: AuditLog) -> None:
+        self._pool = pool
+        self._audit = audit
+
+    async def run_query(
+        self,
+        sql: str,
+        *,
+        stated_task: str | None = None,
+        agent: str | None = None,
+    ) -> dict[str, Any]:
+        """Execute ``sql`` against Postgres and return the result unchanged.
+
+        Returns a uniform shape for both reads and writes:
+        ``{"status", "rows", "row_count", "error"}``. ``status`` is the Postgres
+        command tag (e.g. ``"SELECT 2"``, ``"UPDATE 5"``, ``"CREATE TABLE"``),
+        which carries the affected-row count for writes -- useful for the corpus
+        now and blast-radius work later, obtained without any string matching.
+
+        DB errors are captured, logged, and returned as a structured ``error``
+        rather than raised, so the agent gets a clear message and we still record
+        the attempt in the corpus. Shadow mode never blocks -- only observes.
+        """
+        started = time.perf_counter()
+        status: str | None = None
+        rows: list[dict[str, Any]] = []
+        error: str | None = None
+
+        try:
+            async with self._pool.acquire() as conn:
+                # prepare()+fetch() runs the statement once and exposes BOTH the
+                # returned rows and the command tag (status) -- see DECISIONS.
+                stmt = await conn.prepare(sql)
+                records = await stmt.fetch()
+                status = stmt.get_statusmsg()
+                rows = [dict(r) for r in records]
+        except asyncpg.PostgresError as exc:
+            # Surface the DB's own error to the agent verbatim; don't editorialize.
+            error = f"{type(exc).__name__}: {exc}"
+
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+
+        # Non-blocking enqueue -- the query does not wait on this (sec. 4).
+        self._audit.record(
+            {
+                "event": "query",
+                "agent": agent,
+                "stated_task": stated_task,
+                "sql": sql,
+                "status": status,
+                "rows_returned": len(rows),
+                "error": error,
+                "duration_ms": round(elapsed_ms, 3),
+            }
+        )
+
+        return {
+            "status": status,
+            "rows": rows,
+            "row_count": len(rows),
+            "error": error,
+        }
+
+
+@dataclass
+class AppContext:
+    """Resources shared across requests, set up once in the lifespan."""
+
+    session: ShadowSession
+    audit: AuditLog
+    pool: asyncpg.Pool
+
+
+@asynccontextmanager
+async def lifespan(_server: FastMCP) -> AsyncIterator[AppContext]:
+    """Open the pool + audit log on startup; close them cleanly on shutdown."""
+    pool = await asyncpg.create_pool(
+        dsn=DB_DSN, min_size=POOL_MIN_SIZE, max_size=POOL_MAX_SIZE
+    )
+    audit = AuditLog(AUDIT_LOG_PATH)
+    await audit.start()
+    try:
+        yield AppContext(session=ShadowSession(pool, audit), audit=audit, pool=pool)
+    finally:
+        await audit.stop()
+        await pool.close()
+
+
+mcp = FastMCP("agent-db-safety", lifespan=lifespan)
+
+
+@mcp.tool()
+async def run_query(
+    sql: str,
+    ctx: Context,
+    stated_task: str | None = None,
+) -> dict[str, Any]:
+    """Run a SQL statement against the database and return its result.
+
+    Day 1 shadow mode: the statement is forwarded unchanged and logged; nothing
+    is blocked. ``stated_task`` is the agent's description of what it's trying to
+    do -- captured now to power intent-mismatch detection later (sec. 10); it is
+    purely advisory and never affects execution.
+    """
+    app: AppContext = ctx.request_context.lifespan_context
+    # MCP gives us a stable client/session id; use it as the agent identity.
+    agent = getattr(ctx, "client_id", None) or ctx.request_id
+    return await app.session.run_query(sql, stated_task=stated_task, agent=agent)
+
+
+def main() -> None:
+    """Entry point: run the MCP server over stdio (the standard MCP transport)."""
+    mcp.run()
+
+
+if __name__ == "__main__":
+    main()

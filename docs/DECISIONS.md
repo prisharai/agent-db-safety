@@ -76,4 +76,41 @@ Verified seed: film 1000, customer 599, app_event 3,000,000,
 metric_sample 2,000,000. Day 0 "Done when" now fully met:
 `docker compose up` → seeded Postgres, `pytest` green, README explains startup.
 
+## 2026-06-20 — Day 1: pass-through MCP server + shadow-mode audit log
+**Decision:** Built the Day 1 slice. Added the official **`mcp`** SDK and stood
+up a `FastMCP` server (`adapters/mcp_server.py`) exposing one `run_query` tool
+that forwards SQL to Postgres unchanged and returns the result — **shadow mode:
+log everything, block nothing.** Four sub-decisions worth recording:
+
+1. **Single-execution primitive: `conn.prepare(sql)` + `stmt.fetch()`.** Probed
+   asyncpg and confirmed this runs the statement *once* and exposes BOTH the
+   returned rows AND the command tag via `stmt.get_statusmsg()` (`"SELECT 3"`,
+   `"UPDATE 5"`, `"CREATE TABLE"`). So we get affected-row counts for writes
+   with **no string matching** (CLAUDE.md §6) and no double execution of a
+   side-effecting statement. `execute()` gives the tag but discards rows;
+   `fetch()` gives rows but discards the tag — prepare+fetch gives both.
+2. **Audit log is sync-enqueue / async-write (`engine/audit.py`).** `record()`
+   is a synchronous, non-blocking `Queue.put_nowait` on the query path; a single
+   background consumer batches entries and writes JSONL via `asyncio.to_thread`
+   so the disk write never blocks the event loop (and thus never adds latency to
+   other in-flight queries). On a full queue we **drop + count** rather than
+   block — logging is fail-open by design (§4: a query must never wait on a log).
+3. **DB errors are captured and returned, not raised.** In shadow mode a failing
+   statement yields a structured `{"error": ...}` and is still logged (the
+   corpus wants failures too, §10). The agent gets the DB's own message verbatim.
+4. **`ShadowSession` lives in the adapter for now, but is transport-agnostic.**
+   It depends only on an asyncpg pool + `AuditLog`, so it's unit-testable without
+   MCP. There is no policy engine yet; when Day 3 adds parse/classify/policy the
+   *decision* moves into `engine/` and the adapter calls it — the transport layer
+   never grows policy logic (§5).
+
+Config (DSN, audit path, pool size) is env-overridable with docker-compose
+defaults. Runtime `logs/` added to `.gitignore`. Tests in
+`tests/test_pass_through.py` cover reads, writes/DDL affected-counts, error
+capture, and that every statement (success and failure) reaches the audit log.
+**Latency/safety impact:** Request-path cost is a pool acquire + one Postgres
+round trip (the irreducible cost of running the query) plus one non-blocking
+enqueue. No blocking I/O, no network, no LLM on the path. This is the
+pass-through baseline the Day 7 benchmark measures against.
+
 <!-- Append future decisions below this line. -->

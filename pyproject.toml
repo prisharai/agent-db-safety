@@ -13,6 +13,7 @@ dependencies = [
     "pglast>=6,<8",
     # Fast async Postgres driver. Async/no-blocking-I/O on the engine path.
     "asyncpg>=0.29,<0.31",
+    "mcp>=1.28.0",
 ]
 
 [dependency-groups]

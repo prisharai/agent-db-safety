@@ -32,9 +32,10 @@ import asyncpg
 from mcp.server.fastmcp import Context, FastMCP
 
 from engine.audit import AuditLog
-from engine.classifier import classify
+from engine.classifier import WRITE, classify
 from engine.policy import Policy, apply_blast_radius, evaluate
 from engine.simulate import is_risky_write, simulate
+from engine.undo import UndoStore, execute_with_undo, revert
 
 # --- Config (env-overridable; defaults match docker-compose.yml) -------------
 DB_DSN = os.environ.get(
@@ -73,10 +74,23 @@ class ShadowSession:
         pool: asyncpg.Pool,
         audit: AuditLog,
         policy: Policy | None = None,
+        undo_store: UndoStore | None = None,
     ) -> None:
         self._pool = pool
         self._audit = audit
         self._policy = policy
+        self._undo_store = undo_store
+
+    def _undo_enabled(self, classification) -> bool:
+        """True when this statement should run through the undo-capture path."""
+        return (
+            self._undo_store is not None
+            and self._policy is not None
+            and self._policy.undo.enabled
+            and classification.statement_count == 1
+            and bool(classification.statements)
+            and classification.statements[0].kind == WRITE
+        )
 
     async def run_query(
         self,
@@ -204,15 +218,36 @@ class ShadowSession:
         status: str | None = None
         rows: list[dict[str, Any]] = []
         error: str | None = None
+        action_id: str | None = None
+        reversible: bool | None = None
+        undo_reason: str | None = None
 
         try:
             async with self._pool.acquire() as conn:
-                # prepare()+fetch() runs the statement once and exposes BOTH the
-                # returned rows and the command tag (status) -- see DECISIONS.
-                stmt = await conn.prepare(effective_sql)
-                records = await stmt.fetch()
-                status = stmt.get_statusmsg()
-                rows = [dict(r) for r in records]
+                if self._undo_enabled(classification):
+                    # Reversibility (Day 5): capture before/after images so this
+                    # write can be reverted, then execute -- all in one
+                    # transaction. Write path only; reads never reach here (sec. 4).
+                    outcome = await execute_with_undo(
+                        conn,
+                        effective_sql,
+                        classification,
+                        agent=agent,
+                        stated_task=stated_task,
+                        config=self._policy.undo,
+                        store=self._undo_store,
+                    )
+                    status, rows, error = outcome.status, outcome.rows, outcome.error
+                    action_id, reversible = outcome.action_id, outcome.reversible
+                    # When not reversible, tell the agent why (structured).
+                    undo_reason = None if outcome.reversible else outcome.reason
+                else:
+                    # prepare()+fetch() runs the statement once and exposes BOTH
+                    # the returned rows and the command tag -- see DECISIONS.
+                    stmt = await conn.prepare(effective_sql)
+                    records = await stmt.fetch()
+                    status = stmt.get_statusmsg()
+                    rows = [dict(r) for r in records]
         except asyncpg.PostgresError as exc:
             # Surface the DB's own error to the agent verbatim; don't editorialize.
             error = f"{type(exc).__name__}: {exc}"
@@ -232,6 +267,9 @@ class ShadowSession:
                 "error": error,
                 "duration_ms": round(elapsed_ms, 3),
                 "blocked": False,
+                "undo_action_id": action_id,
+                "reversible": reversible,
+                "undo_reason": undo_reason,
                 "decision": decision.to_dict() if decision is not None else None,
                 "classification": classification.to_dict(),
             }
@@ -246,7 +284,21 @@ class ShadowSession:
             "violations": [],
             "requires_confirmation": False,
             "simulation": decision.simulation if decision is not None else None,
+            "undo_action_id": action_id,
+            "reversible": reversible,
+            "undo_reason": undo_reason,
         }
+
+    async def revert_write(
+        self, action_id: str, *, agent: str | None = None
+    ) -> dict[str, Any]:
+        """Undo a previously-recorded write by its action id. Itself audited."""
+        if self._undo_store is None:
+            return {"ok": False, "action_id": action_id, "error": "undo not enabled"}
+        async with self._pool.acquire() as conn:
+            result = await revert(conn, action_id, self._undo_store, agent=agent)
+        self._audit.record({"event": "revert", "agent": agent, **result.to_dict()})
+        return result.to_dict()
 
 
 @dataclass
@@ -271,9 +323,10 @@ async def lifespan(_server: FastMCP) -> AsyncIterator[AppContext]:
     )
     audit = AuditLog(AUDIT_LOG_PATH)
     await audit.start()
+    undo_store = UndoStore(policy.undo) if policy.undo.enabled else None
     try:
         yield AppContext(
-            session=ShadowSession(pool, audit, policy),
+            session=ShadowSession(pool, audit, policy, undo_store),
             audit=audit,
             pool=pool,
             policy=policy,
@@ -306,11 +359,28 @@ async def run_query(
     confirming its own write is not human confirmation; approval is out-of-band
     (Day 6). ``stated_task`` is the agent's description of what it's doing --
     captured for intent-mismatch detection later (sec. 10); advisory.
+
+    When a write is reversible, the result carries ``undo_action_id`` -- pass it
+    to ``revert_write`` to undo the change.
     """
     app: AppContext = ctx.request_context.lifespan_context
     # MCP gives us a stable client/session id; use it as the agent identity.
     agent = getattr(ctx, "client_id", None) or ctx.request_id
     return await app.session.run_query(sql, stated_task=stated_task, agent=agent)
+
+
+@mcp.tool()
+async def revert_write(action_id: str, ctx: Context) -> dict[str, Any]:
+    """Undo a previously-executed write by its ``undo_action_id``.
+
+    Restores the affected rows to their captured before-image (UPDATE values
+    restored in place, DELETEd rows re-inserted, INSERTed rows removed). The
+    revert is itself recorded; a record can only be reverted once. Returns
+    ``{ok, action_id, operation, rows_restored, error}``.
+    """
+    app: AppContext = ctx.request_context.lifespan_context
+    agent = getattr(ctx, "client_id", None) or ctx.request_id
+    return await app.session.revert_write(action_id, agent=agent)
 
 
 def main() -> None:

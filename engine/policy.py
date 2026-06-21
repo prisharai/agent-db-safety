@@ -31,6 +31,7 @@ import yaml
 from engine import classifier
 from engine.classifier import DDL, UNKNOWN, WRITE, Classification
 from engine.simulate import SimulationConfig, SimulationResult
+from engine.undo import UndoConfig
 
 
 # --- Stable, machine-readable reason codes -----------------------------------
@@ -172,6 +173,7 @@ class Policy:
     blocked_columns: dict[str, frozenset[str]] = field(default_factory=dict)
     blocked_functions: frozenset[str] = _DEFAULT_BLOCKED_FUNCTIONS
     simulation: SimulationConfig = field(default_factory=SimulationConfig)
+    undo: UndoConfig = field(default_factory=UndoConfig)
 
     def __post_init__(self) -> None:
         # Config errors fail loudly at construction/load, not silently at runtime.
@@ -213,6 +215,7 @@ class Policy:
             blocked_columns=blocked_columns,
             blocked_functions=blocked_functions,
             simulation=SimulationConfig.from_dict(data.get("simulation")),
+            undo=UndoConfig.from_dict(data.get("undo")),
         )
 
     @classmethod

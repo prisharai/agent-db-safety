@@ -15,6 +15,7 @@ from adapters.mcp_server import ShadowSession
 from engine.audit import AuditLog
 from engine.policy import Policy
 from engine.simulate import SimulationConfig
+from engine.undo import UndoConfig, UndoStore
 
 DB_DSN = os.environ.get(
     "AGENT_DB_DSN",
@@ -40,7 +41,8 @@ async def make_session(tmp_path):
         await audit.start()
         pools.append(pool)
         audits.append(audit)
-        return ShadowSession(pool, audit, policy), log
+        store = UndoStore(policy.undo) if policy.undo.enabled else None
+        return ShadowSession(pool, audit, policy, store), log
 
     yield _make
 
@@ -192,3 +194,51 @@ async def test_reads_are_not_simulated_through_adapter(make_session):
     res = await sess.run_query("SELECT film_id FROM film WHERE film_id = 1")
     assert res["simulation"] is None  # reads are never simulated
     assert res["row_count"] == 1
+
+
+# --- Day 5: reversible writes through the adapter -----------------------------
+
+
+async def test_write_is_reversible_through_adapter(make_session, scratch):
+    sess, _ = await make_session(
+        Policy(allowed_tables=None, undo=UndoConfig(enabled=True))
+    )
+    # _sim_scratch has 50 rows (id 1..50); add a non-PK column to mutate.
+    await scratch.execute("ALTER TABLE _sim_scratch ADD COLUMN label text")
+    res = await sess.run_query(
+        "UPDATE _sim_scratch SET label = 'tagged' WHERE id <= 3",
+        stated_task="tag rows",
+        agent="agent-7",
+    )
+    assert res["reversible"] is True
+    assert res["undo_action_id"]
+    tagged = "SELECT count(*) FROM _sim_scratch WHERE label = 'tagged'"
+    assert await scratch.fetchval(tagged) == 3
+
+    rev = await sess.revert_write(res["undo_action_id"], agent="agent-7")
+    assert rev["ok"] is True
+    assert rev["operation"] == "update"
+    assert await scratch.fetchval(tagged) == 0  # labels restored to NULL
+
+
+async def test_reads_carry_no_undo_action(make_session):
+    sess, _ = await make_session(
+        Policy(allowed_tables=frozenset({"film"}), undo=UndoConfig(enabled=True))
+    )
+    res = await sess.run_query("SELECT film_id FROM film WHERE film_id = 1")
+    assert res["undo_action_id"] is None
+    assert res["reversible"] is None  # reads never go through the undo path
+
+
+async def test_non_reversible_reason_is_surfaced(make_session, scratch):
+    # QA P2: when a write can't be reverted, the agent gets a machine-readable
+    # undo_reason, not just reversible=False.
+    sess, _ = await make_session(
+        Policy(allowed_tables=None, undo=UndoConfig(enabled=True))
+    )
+    res = await sess.run_query(
+        "UPDATE _sim_scratch t SET id = id FROM (SELECT 1 AS x) s WHERE t.id = 1"
+    )
+    assert res["reversible"] is False
+    assert res["undo_reason"] is not None
+    assert "FROM/USING" in res["undo_reason"]

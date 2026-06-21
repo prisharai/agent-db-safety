@@ -226,3 +226,4 @@ QA_REPORT.md
 # Project-private docs — kept out of the public GitHub repo
 docs/
 CLAUDE.md
+benchmarks/

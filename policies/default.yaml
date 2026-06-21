@@ -78,3 +78,10 @@ simulation:
   lock_timeout_ms: 200
   confirm_over_rows: 1000     # writes touching >1k rows need explicit confirmation
   block_over_rows: 100000     # writes touching >100k rows are blocked outright
+
+# Reversibility / instant undo (differentiator #2). Write path only -- a
+# before-image of every reversible write is captured so it can be reverted with
+# its action id. The undo log lives in a sidecar schema in the same database.
+undo:
+  enabled: true
+  schema: adb_undo

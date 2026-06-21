@@ -38,9 +38,26 @@ ON = SimulationConfig(enabled=True, precise=True)
 # --- Gating (pure, no DB) ----------------------------------------------------
 
 
-def test_only_single_statement_writes_are_risky():
-    assert is_risky_write(classify("UPDATE film SET rental_rate = 1 WHERE film_id=1"))
-    assert is_risky_write(classify("DELETE FROM rental WHERE rental_id = 1"))
+def test_risky_write_predicate():
+    # Risky = a bulk-shaped single write whose blast radius isn't obvious.
+    assert is_risky_write(
+        classify("UPDATE film SET rental_rate = 1 WHERE rental_rate < 3")
+    )
+    assert is_risky_write(classify("DELETE FROM rental WHERE inventory_id > 100"))
+    # data-modifying CTE is routed in (so it fails closed)
+    assert is_risky_write(
+        classify("WITH d AS (DELETE FROM rental RETURNING *) SELECT * FROM d")
+    )
+    # NOT risky -- routine shapes that shouldn't pay simulation cost:
+    assert not is_risky_write(
+        classify("UPDATE film SET rental_rate=1 WHERE film_id = 1")
+    )  # point
+    assert not is_risky_write(
+        classify("DELETE FROM rental WHERE rental_id = 5")
+    )  # point
+    assert not is_risky_write(
+        classify("INSERT INTO film (title) VALUES ('x')")
+    )  # insert
     assert not is_risky_write(classify("SELECT * FROM film"))  # read
     assert not is_risky_write(classify("DROP TABLE film"))  # ddl
     assert not is_risky_write(classify("UPDATE film SET x=1; SELECT 1"))  # multi
@@ -115,6 +132,45 @@ async def test_estimate_only_mode(conn):
 
 
 # --- Time-boxing aborts cleanly ----------------------------------------------
+
+
+async def test_nested_dml_cte_is_unsupported_not_undercounted(conn):
+    # QA P0: a data-modifying CTE's outer command tag ("SELECT N") doesn't reflect
+    # the nested write's rows, so we refuse to measure it rather than undercount.
+    sql = (
+        "WITH u AS (UPDATE film SET rental_rate = rental_rate "
+        "WHERE rental_rate < 3 RETURNING 1) SELECT count(*) FROM u"
+    )
+    r = await simulate(conn, sql, classify(sql), ON)
+    assert r.method == "unsupported"
+    assert r.exact_rows is None
+    assert r.error is not None
+
+
+async def test_explain_respects_lock_timeout(conn):
+    # QA P1b: EXPLAIN runs inside a timeout-scoped tx, so a held lock makes it
+    # abort fast instead of hanging. Hold ACCESS EXCLUSIVE on film in another
+    # connection, then estimate an update of film.
+    blocker = await asyncpg.connect(dsn=DB_DSN, timeout=5)
+    tr = blocker.transaction()
+    await tr.start()
+    try:
+        await blocker.execute("LOCK TABLE film IN ACCESS EXCLUSIVE MODE")
+        r = await simulate(
+            conn,
+            "UPDATE film SET rental_rate = rental_rate WHERE rental_rate < 3",
+            classify("UPDATE film SET rental_rate = rental_rate WHERE rental_rate < 3"),
+            SimulationConfig(
+                enabled=True,
+                precise=False,
+                statement_timeout_ms=5000,
+                lock_timeout_ms=200,
+            ),
+        )
+        assert r.timed_out is True  # aborted on the lock, did not hang
+    finally:
+        await tr.rollback()
+        await blocker.close()
 
 
 async def test_statement_timeout_aborts_cleanly_and_rolls_back(conn):

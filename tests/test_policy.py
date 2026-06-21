@@ -288,3 +288,29 @@ def test_block_limit_wins_over_confirm():
     cfg = SimulationConfig(block_over_rows=1000, confirm_over_rows=100)
     d = apply_blast_radius(_ALLOWED, _result(exact_rows=2000), cfg)
     assert d.allowed is False
+
+
+def test_blast_radius_unknown_fails_closed():
+    # QA P1d: a write whose blast radius couldn't be measured (error, no count)
+    # must NOT be silently allowed -- fail closed for writes.
+    cfg = SimulationConfig(enabled=True, precise=False, block_over_rows=1)
+    d = apply_blast_radius(
+        _ALLOWED,
+        SimulationResult(method="estimate", error="PlannerError", estimated_rows=None),
+        cfg,
+    )
+    assert d.allowed is False
+    assert ReasonCode.BLAST_RADIUS_UNKNOWN in {v.reason_code for v in d.violations}
+
+
+def test_nested_dml_unsupported_blocks():
+    # QA P0: a data-modifying CTE is reported unsupported -> blocked, never
+    # allowed on a bogus top-level command-tag count.
+    cfg = SimulationConfig(enabled=True, precise=True, block_over_rows=100000)
+    d = apply_blast_radius(
+        _ALLOWED,
+        SimulationResult(method="unsupported", error="nested data-modifying CTE"),
+        cfg,
+    )
+    assert d.allowed is False
+    assert ReasonCode.BLAST_RADIUS_UNKNOWN in {v.reason_code for v in d.violations}

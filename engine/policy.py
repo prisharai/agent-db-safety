@@ -47,6 +47,7 @@ class ReasonCode:
     LOCKING_NOT_ALLOWED = "LOCKING_NOT_ALLOWED"
     FUNCTION_NOT_ALLOWED = "FUNCTION_NOT_ALLOWED"
     BLAST_RADIUS_EXCEEDED = "BLAST_RADIUS_EXCEEDED"
+    BLAST_RADIUS_UNKNOWN = "BLAST_RADIUS_UNKNOWN"
     UNPARSEABLE = "UNPARSEABLE"
 
 
@@ -489,6 +490,7 @@ def apply_blast_radius(
     sim = result.to_dict()
     rows = result.affected_rows
 
+    # Over the hard limit -> block (always wins).
     if (
         rows is not None
         and config.block_over_rows is not None
@@ -508,10 +510,29 @@ def apply_blast_radius(
             simulation=sim,
         )
 
-    needs_confirmation = result.timed_out or (
-        rows is not None
-        and config.confirm_over_rows is not None
-        and rows > config.confirm_over_rows
+    # Unknown blast radius: we asked but couldn't get a row count. Fail closed
+    # for writes (sec. 4) -- never silently allow. A timeout is treated as
+    # recoverable (hold for confirmation); any other unmeasurable case
+    # (planner error, nested-DML CTE) is a hard block.
+    if rows is None:
+        if result.timed_out:
+            return replace(decision, simulation=sim, requires_confirmation=True)
+        violation = Violation(
+            ReasonCode.BLAST_RADIUS_UNKNOWN,
+            "Could not measure the statement's blast radius "
+            f"({result.error or 'no row estimate'}); blocked as a fail-closed "
+            "default for writes.",
+            "Simplify or narrow the statement so its impact can be simulated.",
+        )
+        return replace(
+            decision,
+            allowed=False,
+            violations=decision.violations + (violation,),
+            simulation=sim,
+        )
+
+    needs_confirmation = (
+        config.confirm_over_rows is not None and rows > config.confirm_over_rows
     )
     return replace(decision, simulation=sim, requires_confirmation=needs_confirmation)
 

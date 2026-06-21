@@ -126,9 +126,7 @@ async def scratch():
         await c.close()
 
 
-async def test_risky_write_needs_confirmation_then_runs_on_confirm(
-    make_session, scratch
-):
+async def test_risky_write_held_until_operator_approval(make_session, scratch):
     sess, _ = await make_session(
         Policy(
             allowed_tables=None,
@@ -139,15 +137,15 @@ async def test_risky_write_needs_confirmation_then_runs_on_confirm(
     )
     sql = "DELETE FROM _sim_scratch WHERE id <= 29"  # 29 rows > confirm limit 10
 
-    # First attempt: held for confirmation, blast radius measured, NOT executed.
+    # Agent attempt: held for confirmation, blast radius measured, NOT executed.
     res = await sess.run_query(sql)
     assert res["requires_confirmation"] is True
     assert res["blocked"] is False
     assert res["simulation"]["exact_rows"] == 29
     assert await scratch.fetchval("SELECT count(*) FROM _sim_scratch") == 50
 
-    # Re-issued with confirm=True: now it runs.
-    res2 = await sess.run_query(sql, confirm=True)
+    # Out-of-band operator approval (the agent can't reach this) runs it.
+    res2 = await sess.run_query(sql, operator_approved=True)
     assert res2["requires_confirmation"] is False
     assert res2["status"] == "DELETE 29"
     assert await scratch.fetchval("SELECT count(*) FROM _sim_scratch") == 21
@@ -160,14 +158,28 @@ async def test_risky_write_over_block_limit_is_blocked(make_session, scratch):
             simulation=SimulationConfig(enabled=True, precise=True, block_over_rows=10),
         )
     )
-    # 39 rows > block limit 10 -> blocked outright, even with confirm.
-    res = await sess.run_query("DELETE FROM _sim_scratch WHERE id <= 39", confirm=True)
+    # 39 rows > block limit 10 -> blocked outright, even with operator approval.
+    res = await sess.run_query(
+        "DELETE FROM _sim_scratch WHERE id <= 39", operator_approved=True
+    )
     assert res["blocked"] is True
     assert any(v["reason_code"] == "BLAST_RADIUS_EXCEEDED" for v in res["violations"])
     assert res["simulation"]["exact_rows"] == 39
     assert (
         await scratch.fetchval("SELECT count(*) FROM _sim_scratch") == 50
     )  # untouched
+
+
+def test_agent_tool_has_no_confirmation_bypass():
+    # QA P1e: the MCP tool (the agent's only interface) must not expose any way
+    # to approve a held write -- that would be the agent confirming itself.
+    import inspect
+
+    from adapters.mcp_server import run_query as tool
+
+    params = set(inspect.signature(tool).parameters)
+    assert "confirm" not in params
+    assert "operator_approved" not in params  # operator seam is server-side only
 
 
 async def test_reads_are_not_simulated_through_adapter(make_session):

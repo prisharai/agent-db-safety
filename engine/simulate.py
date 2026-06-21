@@ -81,14 +81,30 @@ class SimulationResult:
 
 _SKIPPED = SimulationResult(method="skipped")
 
+# Statement shapes worth simulating: bulk-mutating writes whose blast radius is
+# not obvious from the text. INSERT (you know what you're inserting) and scoped
+# point writes (UPDATE/DELETE ... WHERE col = value) are routine -> not simulated.
+_RISKY_WRITE_STMTS = {"UpdateStmt", "DeleteStmt", "MergeStmt"}
+
 
 def is_risky_write(classification: Classification) -> bool:
-    """Gate: a single-statement data write is the only thing we simulate."""
-    return (
-        classification.statement_count == 1
-        and bool(classification.statements)
-        and classification.statements[0].kind == WRITE
-    )
+    """Gate: only a *risky-shaped* single write is simulated (sec. 4).
+
+    Risky = a single-statement UPDATE/DELETE/MERGE that is not a point write, or
+    a data-modifying CTE (routed here so it fails closed -- see ``simulate``).
+    Routine writes (point updates/deletes by key, plain INSERTs) are skipped, so
+    they pay no extra round trips, locks, or rollback side effects.
+    """
+    if classification.statement_count != 1 or not classification.statements:
+        return False
+    s = classification.statements[0]
+    if s.kind != WRITE:
+        return False
+    if s.nested_dml:
+        return True  # data-modifying CTE: simulate so it fails closed (P0)
+    if s.stmt_type in _RISKY_WRITE_STMTS:
+        return not s.point_write
+    return False
 
 
 def _rows_from_tag(tag: str | None) -> int | None:
@@ -99,14 +115,32 @@ def _rows_from_tag(tag: str | None) -> int | None:
     return int(last) if last.isdigit() else None
 
 
-async def _estimate(conn, sql: str) -> tuple[int | None, float | None, str | None]:
-    """Planner estimate via EXPLAIN (no execution, no row locks)."""
+async def _estimate(
+    conn, sql: str, config: SimulationConfig
+) -> tuple[int | None, float | None, str | None, bool]:
+    """Planner estimate via EXPLAIN. Time-boxed (sec. 4).
+
+    Returns (rows, cost, error, timed_out). EXPLAIN still takes an AccessShare
+    lock for planning, so we run it inside a transaction with SET LOCAL
+    statement/lock timeouts -- otherwise it could hang on a contended relation
+    lock or pathological planner work. Read-only; always rolled back.
+    """
+    tr = conn.transaction()
+    await tr.start()
     try:
+        await conn.execute(
+            f"SET LOCAL statement_timeout = {int(config.statement_timeout_ms)}"
+        )
+        await conn.execute(f"SET LOCAL lock_timeout = {int(config.lock_timeout_ms)}")
         raw = await conn.fetchval(f"EXPLAIN (FORMAT JSON) {sql}")
         plan = json.loads(raw)[0]["Plan"]
-        return plan.get("Plan Rows"), plan.get("Total Cost"), None
+        return plan.get("Plan Rows"), plan.get("Total Cost"), None, False
+    except (QueryCanceledError, LockNotAvailableError) as exc:
+        return None, None, type(exc).__name__, True
     except Exception as exc:  # malformed plan, planner error -- estimate is optional
-        return None, None, f"{type(exc).__name__}: {exc}"
+        return None, None, f"{type(exc).__name__}: {exc}", False
+    finally:
+        await tr.rollback()
 
 
 async def _exact(
@@ -149,13 +183,24 @@ async def simulate(
     if not config.enabled or not is_risky_write(classification):
         return _SKIPPED
 
-    est_rows, est_cost, est_err = await _estimate(conn, sql)
+    # Data-modifying CTE (P0): the outer command tag (e.g. "SELECT 1") does NOT
+    # reflect the rows the nested write touches, so the exact count is not
+    # measurable this way. Report it as unmeasurable -- the decision layer fails
+    # closed on an unknown blast radius (apply_blast_radius).
+    if classification.statements[0].nested_dml:
+        return SimulationResult(
+            method="unsupported",
+            error="nested data-modifying CTE: blast radius not measurable",
+        )
+
+    est_rows, est_cost, est_err, est_timed_out = await _estimate(conn, sql, config)
 
     if not config.precise:
         return SimulationResult(
             method="estimate",
             estimated_rows=est_rows,
             estimated_cost=est_cost,
+            timed_out=est_timed_out,
             error=est_err,
         )
 
@@ -165,6 +210,6 @@ async def simulate(
         estimated_rows=est_rows,
         estimated_cost=est_cost,
         exact_rows=exact,
-        timed_out=timed_out,
+        timed_out=timed_out or est_timed_out,
         error=exact_err or est_err,
     )

@@ -84,7 +84,7 @@ class ShadowSession:
         *,
         stated_task: str | None = None,
         agent: str | None = None,
-        confirm: bool = False,
+        operator_approved: bool = False,
     ) -> dict[str, Any]:
         """Apply policy + (gated) simulation, then execute and return the result.
 
@@ -93,8 +93,13 @@ class ShadowSession:
         is blocked, ``blocked=True`` and ``violations`` explains why (the DB is
         never touched). When a risky write's blast radius crosses the confirm
         threshold, ``requires_confirmation=True`` with the ``simulation`` measured
-        -- the agent must re-issue with ``confirm=True`` to proceed. ``confirm``
-        never overrides a hard block (e.g. blast radius over the block limit).
+        and the write is held -- NOT executed.
+
+        ``operator_approved`` is the out-of-band approval seam: it is **not**
+        exposed through the MCP tool, so an agent can never set it and cannot
+        approve its own write (that would not be human confirmation). Only a
+        server-side/operator caller (a real human channel lands in Day 6) can pass
+        it. It never overrides a hard block (e.g. blast radius over the limit).
         """
         # Parse + classify on the hot path -- both LRU-cached, pure, ~0.1 ms cold.
         classification = classify(sql)
@@ -153,12 +158,13 @@ class ShadowSession:
             }
 
         # Allowed but gated: a risky write whose blast radius needs confirmation.
-        # Hold it until the agent re-issues with confirm=True. Never touch the DB.
+        # Held until an out-of-band operator approves (not the agent). Never
+        # touches the DB otherwise.
         if (
             decision is not None
             and decision.requires_confirmation
             and enforce
-            and not confirm
+            and not operator_approved
         ):
             self._audit.record(
                 {
@@ -285,7 +291,6 @@ async def run_query(
     sql: str,
     ctx: Context,
     stated_task: str | None = None,
-    confirm: bool = False,
 ) -> dict[str, Any]:
     """Run a SQL statement against the database and return its result.
 
@@ -296,17 +301,16 @@ async def run_query(
 
     A risky write may be simulated first to measure its blast radius. If that
     exceeds the confirm threshold the result has ``requires_confirmation=True``
-    and a ``simulation`` summary (e.g. "would affect 2.3M rows"); re-issue with
-    ``confirm=True`` to proceed. ``stated_task`` is the agent's description of
-    what it's trying to do -- captured for intent-mismatch detection later
-    (sec. 10); advisory, it does not affect the deterministic decision.
+    and a ``simulation`` summary (e.g. "would affect 2.3M rows") and the write is
+    held. There is deliberately no agent-facing way to approve it -- an agent
+    confirming its own write is not human confirmation; approval is out-of-band
+    (Day 6). ``stated_task`` is the agent's description of what it's doing --
+    captured for intent-mismatch detection later (sec. 10); advisory.
     """
     app: AppContext = ctx.request_context.lifespan_context
     # MCP gives us a stable client/session id; use it as the agent identity.
     agent = getattr(ctx, "client_id", None) or ctx.request_id
-    return await app.session.run_query(
-        sql, stated_task=stated_task, agent=agent, confirm=confirm
-    )
+    return await app.session.run_query(sql, stated_task=stated_task, agent=agent)
 
 
 def main() -> None:

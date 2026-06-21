@@ -307,4 +307,42 @@ guards (statement/lock timeout + unconditional rollback) are the load-bearing
 safety and are directly tested (clean abort + table-untouched + connection still
 usable).
 
+## 2026-06-20 — Day 4 QA fixes (P0/P1×4 from QA_REPORT.md)
+**Decision:** Fixed five simulation issues, each with a regression test.
+
+* **P0 — nested-DML CTEs undercounted blast radius.** For `WITH u AS (UPDATE ...
+  RETURNING 1) SELECT ...` the outer command tag is `SELECT 1`, so the tag-based
+  count was wrong. `simulate` now detects `nested_dml` and returns
+  `method="unsupported"` (no count, error) instead of trusting the tag; the
+  decision layer fails closed on it (blocks). "Block until supported," per the
+  report's first option.
+* **P1 — EXPLAIN had no hard timeout.** `_estimate` now runs `EXPLAIN` inside a
+  transaction with `SET LOCAL statement_timeout`/`lock_timeout` and reports
+  `timed_out`. Verified: with `ACCESS EXCLUSIVE` held on the table, the estimate
+  aborts in ~210 ms (lock_timeout) instead of hanging.
+* **P1 — every single-statement write was simulated.** Added a real risk
+  predicate: `is_risky_write` = single UPDATE/DELETE/MERGE that is **not** a
+  point write, or a data-modifying CTE. A new classifier signal `point_write`
+  (WHERE is a single `col = value`) excludes routine key-scoped writes; plain
+  INSERTs are excluded too. Routine writes now pay no simulation cost (no extra
+  round trips, locks, or rollback side effects).
+* **P1 — unknown simulation result failed open for writes.** `apply_blast_radius`
+  now fails closed when there's no row count: a timeout holds for confirmation;
+  any other unmeasurable case (planner error, unsupported nested-DML) is a hard
+  block with a new `BLAST_RADIUS_UNKNOWN` reason code.
+* **P1 — agent could bypass confirmation.** Removed the agent-facing `confirm`
+  argument from the MCP tool entirely. The hold/approve seam is now
+  `operator_approved` on `ShadowSession.run_query`, which is **not** exposed to
+  the agent (an agent approving its own write is not human confirmation). A
+  confirmation-gated write is simply held until an out-of-band operator approves
+  — a real human approval channel lands in Day 6. `operator_approved` never
+  overrides a hard block.
+
+**Latency/safety impact:** All changes tighten the fail-closed posture and
+*reduce* DB work on routine writes (most are no longer simulated). Classifier
+cold latency 0.084 ms (~60× under the 5 ms p99 budget) with the added
+`point_write` check. The risk predicate is a documented heuristic (can't see
+schema, so equality on a non-unique column is a conservative false-negative for
+riskiness — undo/policy still cover those). 141 tests green.
+
 <!-- Append future decisions below this line. -->

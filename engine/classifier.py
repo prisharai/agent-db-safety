@@ -332,10 +332,10 @@ def _is_point_predicate(where) -> bool:
     names = [getattr(n, "sval", None) for n in (where.name or ())]
     if names != ["="]:
         return False
-    return (
-        type(where.lexpr).__name__ == "ColumnRef"
-        and type(where.rexpr).__name__ in {"A_Const", "ParamRef"}
-    )
+    return type(where.lexpr).__name__ == "ColumnRef" and type(where.rexpr).__name__ in {
+        "A_Const",
+        "ParamRef",
+    }
 
 
 def _classify_one(index: int, stmt_node) -> StatementInfo:

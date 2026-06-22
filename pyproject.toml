@@ -18,6 +18,9 @@ dependencies = [
 ]
 
 [dependency-groups]
+bench = [
+    "hdrhistogram>=0.10.7",
+]
 # Dev-only tooling. Not installed in a production/runtime image.
 dev = [
     "pytest>=8,<9",

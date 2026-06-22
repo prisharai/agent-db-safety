@@ -1,4 +1,4 @@
-# RESULTS.md — Day 7 latency benchmark
+# RESULTS.md 
 
 _Generated 2026-06-22 18:52 UTC · campaign wall time 22.0 min._
 

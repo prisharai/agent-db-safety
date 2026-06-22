@@ -1,4 +1,4 @@
-"""Benchmark campaign runner + RESULTS.md reporter (methodology §4-§7).
+"""Benchmark campaign runner 
 
 Runs the A/B/C harness across a rate sweep, both views (pure-overhead SELECT 1
 and the realistic mix), and >=5 interleaved runs; records everything into

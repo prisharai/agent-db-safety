@@ -1,4 +1,4 @@
-"""Open-loop load generator with HdrHistogram recording (methodology §2, §5).
+"""Open-loop load generator with HdrHistogram recording
 
 The cardinal rule: requests are issued on a fixed pre-computed schedule at a
 target arrival rate; we do NOT wait for response i before sending i+1. Latency is

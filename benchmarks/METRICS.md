@@ -1,4 +1,4 @@
-# METRICS.md — measured results (research-paper reference)
+# METRICS.md
 
 A single place collecting every measured number in this project, with how it was
 obtained, so results can be cited and reproduced. Numbers are from the dev setup

@@ -1,22 +1,4 @@
-"""Phase A transport: MCP server (Day 1 -- pass-through + shadow mode).
-
-Exposes a ``run_query`` tool that agents (Claude Code, Cursor, ...) call as
-their database tool. Day 1 is deliberately a *pass-through*: every statement is
-forwarded to Postgres unchanged and the result returned unchanged. We **log
-every statement and block nothing** (shadow mode, CLAUDE.md sec. 8 Day 1). This
-is the baseline we benchmark against later and the traffic corpus we mine
-(sec. 10).
-
-Architecture (sec. 5): this adapter stays thin. The pass-through "session" below
-is pure forward-and-log with **zero policy** -- there is no policy engine yet.
-When Day 3 adds parse/classify/policy in ``engine/``, the decision moves there
-and this adapter calls into it; the transport code does not grow policy logic.
-
-Latency posture (sec. 4): the only request-path work here is a pool acquire +
-one round trip to Postgres (the unavoidable cost of running the query at all)
-plus a single non-blocking ``audit.record`` enqueue. Logging never blocks the
-query; see ``engine/audit.py``.
-"""
+"""MCP transport adapter for database query execution."""
 
 from __future__ import annotations
 
@@ -58,18 +40,7 @@ POOL_MAX_SIZE = int(os.environ.get("AGENT_POOL_MAX", "10"))
 
 
 class ShadowSession:
-    """Forward a statement, apply policy, log it, return it.
-
-    Transport-agnostic by construction -- it depends only on an asyncpg pool, an
-    :class:`AuditLog`, and an optional :class:`Policy`, not on MCP. That keeps it
-    unit-testable without a live MCP client (see the tests).
-
-    With ``policy=None`` it is a pure pass-through (Day 1/2 shadow behaviour).
-    With a policy it enforces (Day 3): a blocked statement is rejected *before*
-    touching the database, with a structured, machine-readable explanation. In a
-    policy whose ``mode == "observe"`` the decision is computed and logged but the
-    statement still runs -- a safe way to trial a policy against live traffic.
-    """
+    """Execute a SQL statement, log the result, and return the response."""
 
     def __init__(
         self,
@@ -96,13 +67,7 @@ class ShadowSession:
     def _maybe_schedule_llm(
         self, stated_task, classification, affected, agent, flag=None
     ) -> None:
-        """Fire the advisory LLM check out-of-band; never block the query (sec. 4).
-
-        Restricted to the **risky subset** (Day 6): only a stated task on a risky
-        write with a HIGH deterministic mismatch is worth a second opinion --
-        routine point writes never spawn background network work. Bounded by a
-        concurrency cap; each call is time-boxed.
-        """
+        """Run an asynchronous advisory check without blocking query execution."""
         cfg = self._policy.intent if self._policy else None
         if not (cfg and cfg.llm_enabled and self._llm_assessor and stated_task):
             return
@@ -159,21 +124,7 @@ class ShadowSession:
         agent: str | None = None,
         operator_approved: bool = False,
     ) -> dict[str, Any]:
-        """Apply policy + (gated) simulation, then execute and return the result.
-
-        Result shape: ``{"status", "rows", "row_count", "error", "blocked",
-        "violations", "requires_confirmation", "simulation"}``. When a statement
-        is blocked, ``blocked=True`` and ``violations`` explains why (the DB is
-        never touched). When a risky write's blast radius crosses the confirm
-        threshold, ``requires_confirmation=True`` with the ``simulation`` measured
-        and the write is held -- NOT executed.
-
-        ``operator_approved`` is the out-of-band approval seam: it is **not**
-        exposed through the MCP tool, so an agent can never set it and cannot
-        approve its own write (that would not be human confirmation). Only a
-        server-side/operator caller (a real human channel lands in Day 6) can pass
-        it. It never overrides a hard block (e.g. blast radius over the limit).
-        """
+        """Evaluate policy, optionally simulate risky writes, then execute the statement."""
         # Parse + classify on the hot path -- both LRU-cached, pure, ~0.1 ms cold.
         classification = classify(sql)
 

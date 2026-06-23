@@ -202,6 +202,45 @@ MCP tools exposed by the server:
 | `revert_write(action_id, operator_token?)` | Revert a recorded write. The originating agent may revert its own action; the operator token overrides that check. |
 | `audit_status()` | Show audit queue depth, dropped-record count, and log path. |
 
+## Connect it to your agent (MCP)
+
+The server speaks MCP over stdio, so any MCP client launches it as a subprocess.
+The client supplies the working directory and environment; the operator token
+stays in the client config, never visible to the model.
+
+**Claude Code** (run from anywhere):
+
+```bash
+claude mcp add agent-db-safety \
+  --env AGENT_DB_DSN=postgresql://postgres:postgres@localhost:5433/pagila \
+  --env AGENT_OPERATOR_TOKEN=choose-a-secret \
+  -- uv run --directory /ABSOLUTE/PATH/TO/agent-db-safety python -m adapters.mcp_server
+```
+
+**Claude Desktop / Cursor** (add to the client's `mcpServers` config):
+
+```json
+{
+  "mcpServers": {
+    "agent-db-safety": {
+      "command": "uv",
+      "args": ["run", "--directory", "/ABSOLUTE/PATH/TO/agent-db-safety",
+               "python", "-m", "adapters.mcp_server"],
+      "env": {
+        "AGENT_DB_DSN": "postgresql://postgres:postgres@localhost:5433/pagila",
+        "AGENT_OPERATOR_TOKEN": "choose-a-secret"
+      }
+    }
+  }
+}
+```
+
+The dev Postgres (`docker compose up -d`) must be running first. Once registered,
+the agent calls `run_query` instead of touching the database directly — every
+statement is then parsed, policy-checked, simulated when risky, and recorded for
+undo. Approvals of held writes happen out-of-band via `approve_query` with the
+operator token (which the agent does not have).
+
 ## Repo layout
 
 ```

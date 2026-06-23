@@ -15,6 +15,7 @@ dependencies = [
     "asyncpg>=0.29,<0.31",
     "mcp>=1.28.0",
     "pyyaml>=6.0.3",
+    "anthropic>=0.111.0",
 ]
 
 [dependency-groups]
@@ -30,6 +31,10 @@ dev = [
     "ruff>=0.5,<1.0",
     "black>=24,<26",
     "sqlalchemy>=2.0.51",
+    "pandas>=3.0.3",
+    "statsmodels>=0.14.6",
+    "matplotlib>=3.11.0",
+    "tabulate>=0.10.0",
 ]
 
 # ---------------------------------------------------------------------------

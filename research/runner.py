@@ -170,12 +170,31 @@ async def run_trial(pool, task: Task, condition: str, agent) -> list[TurnRecord]
 
 
 async def run_experiment(
-    dsn: str, agent, *, trials_per_cell: int, out_path: str, tasks, conditions
+    dsn: str,
+    agent,
+    *,
+    trials_per_cell: int,
+    out_path: str,
+    tasks,
+    conditions,
+    schema: str = "public",
 ) -> str:
-    """Run the full task x condition x trial grid and write JSONL. Returns path."""
-    pool = await asyncpg.create_pool(dsn=dsn, min_size=1, max_size=4)
+    """Run the full task x condition x trial grid and write JSONL. Returns path.
+
+    All scratch tables live in ``schema`` (set on the connection search_path), so
+    several models can run concurrently without colliding on table names.
+    """
+    pool = await asyncpg.create_pool(
+        dsn=dsn,
+        min_size=1,
+        max_size=4,
+        server_settings={"search_path": f"{schema}, public"},
+    )
     n = 0
     try:
+        if schema != "public":
+            async with pool.acquire() as c:
+                await c.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
         with open(out_path, "w", encoding="utf-8") as fh:
             for task in tasks:
                 for condition in conditions:
@@ -184,5 +203,8 @@ async def run_experiment(
                             fh.write(json.dumps(asdict(rec)) + "\n")
                             n += 1
     finally:
+        if schema != "public":
+            async with pool.acquire() as c:
+                await c.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
         await pool.close()
     return out_path

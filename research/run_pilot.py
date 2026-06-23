@@ -81,10 +81,16 @@ def analyze(jsonl_path: str) -> None:
 
 
 def main() -> None:
-    agent = AnthropicAgent() if os.environ.get("AGENT") == "anthropic" else MockAgent()
+    if os.environ.get("AGENT") == "anthropic":
+        model = os.environ.get("MODEL", "claude-opus-4-8")
+        agent = AnthropicAgent(model=model)
+        tag = model.replace("/", "_")
+    else:
+        agent = MockAgent()
+        tag = agent.name
     out_dir = Path(__file__).resolve().parent / "runs"
     out_dir.mkdir(exist_ok=True)
-    out_path = str(out_dir / f"{agent.name}.jsonl")
+    out_path = str(out_dir / f"{tag}.jsonl")
     print(
         f"Running {agent.name} agent: {len(TASKS)} tasks x {len(CONDITIONS)} "
         f"conditions x {TRIALS_PER_CELL} trials ..."
@@ -97,6 +103,7 @@ def main() -> None:
             out_path=out_path,
             tasks=TASKS,
             conditions=list(CONDITIONS),
+            schema=os.environ.get("SCHEMA", "public"),
         )
     )
     analyze(out_path)

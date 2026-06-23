@@ -233,3 +233,6 @@ CLAUDE.md
 AGENTS.md
 QA_REPORT.md
 benchmarks/BENCHMARK_SPEC.md
+
+# Generated experiment logs
+research/runs/

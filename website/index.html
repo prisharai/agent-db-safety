@@ -3,275 +3,330 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Agent DB Safety</title>
+    <title>Vindexa | Postgres safety for AI agents</title>
     <meta
       name="description"
-      content="The safety and undo layer for AI agents touching Postgres."
+      content="Vindexa is the safety and undo layer for AI agents touching Postgres."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650;9..144,750&family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
     />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <div class="scroll-progress" aria-hidden="true"></div>
+
     <header class="site-header">
-      <a class="brand" href="#top" aria-label="Agent DB Safety home">
-        <span class="brand-mark"></span>
-        <span>Agent DB Safety</span>
+      <a class="brand" href="#top" aria-label="Vindexa home">
+        <span class="logo-mark" aria-hidden="true">
+          <svg viewBox="0 0 42 42" role="img">
+            <path class="logo-shield" d="M21 3 35 8.8v12.9c0 8.2-5.2 13.7-14 17.3C12.2 35.4 7 29.9 7 21.7V8.8L21 3Z" />
+            <path class="logo-v" d="M13.2 14.4 20.7 29 29 13.3" />
+            <path class="logo-line" d="M15 22.4h12" />
+          </svg>
+        </span>
+        <span class="brand-word">Vindexa</span>
       </a>
       <nav class="nav" aria-label="Primary navigation">
-        <a href="#how">How it works</a>
+        <a href="#product">Product</a>
+        <a href="#demo">Demo</a>
         <a href="#start">Start</a>
         <a href="#status">Status</a>
       </nav>
-      <a class="nav-cta" href="../README.md">Docs</a>
+      <a
+        class="nav-cta"
+        href="https://github.com/prisharai/agent-db-safety"
+        target="_blank"
+        rel="noreferrer"
+      >GitHub</a>
     </header>
 
     <main id="top">
-      <section class="hero section-grid">
-        <div class="hero-copy">
-          <p class="eyebrow">Runtime guardrails for Postgres in agent workflows</p>
-          <h1>The safety and undo layer for AI agents touching Postgres.</h1>
+      <section class="hero">
+        <div class="hero-copy reveal">
+          <p class="eyebrow">Runtime database defense for agent workflows</p>
+          <h1>Vindexa</h1>
+          <p class="tagline">A graceful defender for AI-generated SQL.</p>
           <p class="subhead">
-            Preview, policy-check, audit, and undo agent-generated SQL before one
-            wrong query updates, deletes, or exposes too much data.
+            The safety and undo layer for AI agents touching Postgres. Preview,
+            policy-check, simulate, approve, audit, and revert risky SQL before
+            it becomes a production incident.
           </p>
           <div class="hero-actions">
             <a class="button primary" href="#start">Get Started</a>
-            <a class="button secondary" href="../README.md">Read Docs</a>
+            <a
+              class="button secondary"
+              href="https://github.com/prisharai/agent-db-safety"
+              target="_blank"
+              rel="noreferrer"
+            >View GitHub</a>
           </div>
-          <div class="trust-row" aria-label="Product capabilities">
-            <span>AST parsing</span>
-            <span>Blast-radius simulation</span>
-            <span>Reversible writes</span>
-          </div>
+          <p class="name-note">
+            The name comes from <em>vindex</em>, Latin for protector or defender:
+            a guard placed between autonomous agents and the data they can change.
+          </p>
         </div>
 
-        <aside class="terminal-card" aria-label="Blocked SQL example">
-          <div class="terminal-top">
-            <span></span>
-            <span></span>
-            <span></span>
-            <strong>agent-sql</strong>
+        <div class="hero-stage reveal" style="--delay: 120ms">
+          <div class="status-strip">
+            <span class="status-dot"></span>
+            <span>Policy active</span>
+            <span>p99 gate &lt; 5 ms</span>
           </div>
-          <pre><code><span class="muted">tool:</span> run_query
-<span class="muted">task:</span> downgrade one customer
+          <div class="query-card">
+            <div class="query-head">
+              <span>agent.generated.sql</span>
+              <strong>blocked</strong>
+            </div>
+            <pre><code><span class="muted">task</span> downgrade one customer
 <span class="sql">UPDATE users SET plan = 'free';</span>
 
-<span class="danger">BLOCKED</span> WRITE_WITHOUT_WHERE
-message: UPDATE has no WHERE clause and
-         would affect every row.
-fix: Add a WHERE clause that scopes
-     the statement to intended rows.
-
-audit: logs/audit.jsonl
-decision: no database write executed</code></pre>
-        </aside>
+<span class="danger">WRITE_WITHOUT_WHERE</span>
+blast_radius: unbounded
+decision: no database write executed
+audit: logs/audit.jsonl</code></pre>
+          </div>
+          <div class="signal-grid">
+            <div><strong>0%</strong><span>red corpus leaks</span></div>
+            <div><strong>294</strong><span>tests passing</span></div>
+            <div><strong>undo</strong><span>agent writes</span></div>
+          </div>
+        </div>
       </section>
 
-      <section class="problem">
-        <div class="section-kicker">Problem</div>
-        <div class="two-col">
-          <h2>Agents can write SQL faster than teams can review the blast radius.</h2>
-          <div class="body-copy">
+      <section id="product" class="section problem reveal">
+        <div class="section-kicker">The problem</div>
+        <div class="split">
+          <h2>Agent SQL needs runtime control, not another migration tool.</h2>
+          <div class="copy-stack">
             <p>
-              AI agents can now generate and execute database queries as part of
-              normal development workflows. A missing <code>WHERE</code>, an
-              overbroad join, or an accidental catalog read can damage data or
-              expose more than the task required.
+              AI agents can now generate and execute SQL during ordinary
+              workflows. A missing <code>WHERE</code>, broad update, unsafe
+              function, or catalog query can alter or expose far more data than
+              the task required.
             </p>
             <p>
-              Migration tools, ORMs, and database version-control systems do not
-              govern live runtime actions from agents. Teams need a control
-              point before they give agents broader database access.
+              Vindexa focuses on live agent actions against existing Postgres
+              databases: classify the SQL, enforce policy, estimate the blast
+              radius, hold risky writes for approval, audit the decision, and
+              preserve an undo path when the write shape supports it.
             </p>
           </div>
         </div>
       </section>
 
-      <section id="how" class="flow-section">
-        <div class="section-kicker">How it works</div>
-        <h2>One deterministic decision path before Postgres commits.</h2>
+      <section class="section flow-section reveal">
+        <div class="section-kicker">Control path</div>
+        <h2>Designed around the decisions an infrastructure team actually needs.</h2>
         <div class="flow">
-          <div class="flow-card">
-            <span>1</span>
+          <article>
+            <span>01</span>
             <h3>Agent sends SQL</h3>
-            <p>The MCP tool receives SQL plus the agent's stated task.</p>
-          </div>
-          <div class="flow-card">
-            <span>2</span>
+            <p>The MCP server receives SQL plus the agent's stated task.</p>
+          </article>
+          <article>
+            <span>02</span>
             <h3>Parse and classify</h3>
-            <p>Statements are parsed with a real Postgres AST, not regex.</p>
-          </div>
-          <div class="flow-card">
-            <span>3</span>
+            <p>Postgres AST parsing identifies shape, tables, columns, and risks.</p>
+          </article>
+          <article>
+            <span>03</span>
             <h3>Policy and simulation</h3>
-            <p>Rules run in memory; risky writes are simulated with timeouts.</p>
-          </div>
-          <div class="flow-card">
-            <span>4</span>
-            <h3>Allow, block, hold, log</h3>
-            <p>Safe writes can be recorded for undo; risky writes need approval.</p>
-          </div>
-        </div>
-      </section>
-
-      <section class="features">
-        <div class="section-kicker">Capabilities</div>
-        <div class="feature-grid">
-          <article>
-            <h3>SQL classification</h3>
-            <p>Detects reads, writes, DDL, multi-statement batches, catalog access,
-              locking reads, unsafe functions, wrapped writes, and sensitive
-              column exposure.</p>
+            <p>Deterministic rules run first; risky writes can be rolled back in simulation.</p>
           </article>
           <article>
-            <h3>Policy enforcement</h3>
-            <p>YAML policy blocks unsafe shapes and returns structured reason
-              codes with suggested fixes.</p>
-          </article>
-          <article>
-            <h3>Blast-radius simulation</h3>
-            <p>Risky writes can run inside a timed transaction and rollback to
-              measure exact affected rows before approval.</p>
-          </article>
-          <article>
-            <h3>Approval gates</h3>
-            <p>Large or contradictory writes are held with an approval id and
-              require an operator token before execution.</p>
-          </article>
-          <article>
-            <h3>Audit logs</h3>
-            <p>Every decision is queued to async JSONL audit logs with visibility
-              into queue depth and dropped-record count.</p>
-          </article>
-          <article>
-            <h3>Undo and reversibility</h3>
-            <p>Reversible writes capture before/after images; unsupported shapes
-              are blocked by default rather than committed without undo.</p>
-          </article>
-          <article>
-            <h3>MCP support</h3>
-            <p>The current adapter exposes MCP tools for query execution,
-              approvals, reverts, pending approvals, and audit health.</p>
-          </article>
-          <article>
-            <h3>Latency posture</h3>
-            <p>The pass-through path is benchmarked locally against a 5 ms p99
-              overhead budget; simulation stays gated to risky writes.</p>
+            <span>04</span>
+            <h3>Approve, log, undo</h3>
+            <p>Safe writes run, risky writes hold, reversible changes receive action ids.</p>
           </article>
         </div>
       </section>
 
-      <section id="start" class="start">
-        <div class="section-kicker">Start in 5 minutes</div>
-        <div class="start-layout">
+      <section id="demo" class="section demo-film reveal">
+        <div class="section-kicker">Generated demo video</div>
+        <div class="video-layout">
           <div>
-            <h2>Run the local developer preview.</h2>
+            <h2>Watch the safety loop happen.</h2>
             <p>
-              This repo is backend-only, so the fastest path is the local Postgres
-              fixture plus the MCP server. The default credentials and policy are
-              for evaluation, not production.
+              This generated walkthrough visualizes the exact demo path in the
+              repo: block a mass update, simulate a scoped risky write, hold it
+              for operator approval, record the audit line, then show the undo
+              action id.
+            </p>
+            <div class="demo-steps">
+              <button class="demo-step is-active" data-demo-step="0">Block</button>
+              <button class="demo-step" data-demo-step="1">Simulate</button>
+              <button class="demo-step" data-demo-step="2">Approve</button>
+              <button class="demo-step" data-demo-step="3">Undo</button>
+            </div>
+          </div>
+
+          <div class="video-shell" aria-label="AI generated demo animation">
+            <div class="video-toolbar">
+              <span class="play-icon"></span>
+              <span>AI-generated demo reel</span>
+              <strong id="demo-timestamp">00:03</strong>
+            </div>
+            <div class="video-canvas">
+              <div class="db-cylinder" aria-hidden="true">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+              <div class="agent-node">AI agent</div>
+              <div class="guard-node">Vindexa</div>
+              <div class="policy-node">Policy</div>
+              <div class="flow-line line-agent"></div>
+              <div class="flow-line line-db"></div>
+              <div class="pulse-dot"></div>
+              <div class="video-caption">Generated enterprise walkthrough</div>
+              <pre class="video-code"><code id="demo-code">UPDATE users SET plan = 'free';</code></pre>
+              <div class="verdict" id="demo-verdict">Blocked: missing WHERE</div>
+            </div>
+            <div class="video-progress">
+              <span class="video-progress-bar"></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="start" class="section start reveal">
+        <div class="section-kicker">Use the demo</div>
+        <div class="start-grid">
+          <div>
+            <h2>Run Vindexa locally against the seeded Postgres fixture.</h2>
+            <p>
+              The quickest proof is the included demo script. It creates a
+              throwaway <code>accounts</code> table, blocks a dangerous query,
+              simulates a risky write, and reverts an allowed write.
             </p>
           </div>
           <div class="command-card">
-            <pre><code>docker compose up -d
+            <div class="command-title">Terminal</div>
+            <pre><code>cd /Users/prishar/agent-db-safety
+docker compose up -d
 uv sync --frozen
-uv run pytest
-uv run python -m examples.demo
-
-AGENT_OPERATOR_TOKEN=dev-operator-token \
-  uv run python -m adapters.mcp_server
-
-uv run python -m benchmarks.ci_latency_gate</code></pre>
+uv run python -m examples.demo</code></pre>
           </div>
         </div>
-
-        <div class="embed-grid">
-          <div class="mini-panel">
-            <h3>Environment</h3>
-            <ul>
-              <li><code>AGENT_DB_DSN</code> targets Postgres.</li>
-              <li><code>AGENT_POLICY</code> points at YAML policy.</li>
-              <li><code>AGENT_AUDIT_LOG</code> writes async JSONL logs.</li>
-              <li><code>AGENT_OPERATOR_TOKEN</code> enables approvals.</li>
-            </ul>
-          </div>
-          <div class="mini-panel">
+        <div class="demo-guide">
+          <article>
+            <span>01</span>
+            <h3>Run the scripted demo</h3>
+            <p>The command creates isolated demo data and exercises block,
+              simulate, approve, audit, and undo behavior.</p>
+          </article>
+          <article>
+            <span>02</span>
+            <h3>Check the decision output</h3>
+            <p>Look for <code>WRITE_WITHOUT_WHERE</code>, held approvals,
+              affected-row estimates, and undo action ids.</p>
+          </article>
+          <article>
+            <span>03</span>
+            <h3>Inspect the audit trail</h3>
+            <p>Runtime decisions are written as JSONL records under
+              <code>logs/audit.jsonl</code>.</p>
+          </article>
+        </div>
+        <div class="usage-grid">
+          <article>
+            <h3>Start the MCP server</h3>
+            <pre><code>AGENT_OPERATOR_TOKEN=dev-token \
+  uv run python -m adapters.mcp_server</code></pre>
+          </article>
+          <article>
+            <h3>Run checks</h3>
+            <pre><code>uv run pytest
+uv run ruff check .
+uv run black --check .
+uv run python -m benchmarks.ci_latency_gate</code></pre>
+          </article>
+          <article>
             <h3>Agent call</h3>
             <pre><code>run_query({
   "stated_task": "downgrade user 42",
   "sql": "UPDATE users SET plan = 'free';"
 })</code></pre>
-          </div>
-          <div class="mini-panel">
-            <h3>Response</h3>
-            <pre><code>{
-  "blocked": true,
-  "violations": [{
-    "reason_code": "WRITE_WITHOUT_WHERE"
-  }],
-  "requires_confirmation": false
-}</code></pre>
-          </div>
+          </article>
         </div>
       </section>
 
-      <section class="demo">
-        <div class="section-kicker">Demo scenario</div>
-        <div class="demo-card">
-          <div>
-            <h2>Mass update stopped before commit.</h2>
-            <p>
-              An agent tries <code>UPDATE users SET plan = 'free';</code>. The
-              safety layer detects the missing <code>WHERE</code>, blocks the
-              query, writes an audit record, and returns a machine-readable fix.
-              A scoped bulk update would be simulated first; if it crosses policy
-              thresholds, it is held for operator approval. Reversible writes get
-              an <code>undo_action_id</code>.
-            </p>
-          </div>
-          <pre><code>blocked: true
-reason_code: WRITE_WITHOUT_WHERE
-suggested_fix: Add a WHERE clause.
-audit: logs/audit.jsonl
-undo_action_id: null</code></pre>
+      <section class="section features reveal">
+        <div class="section-kicker">Enterprise-shaped controls</div>
+        <div class="feature-grid">
+          <article>
+            <h3>AST classification</h3>
+            <p>Detect reads, writes, DDL, multi-statement batches, catalog access,
+              locking reads, unsafe functions, wrapped writes, and sensitive columns.</p>
+          </article>
+          <article>
+            <h3>Policy enforcement</h3>
+            <p>YAML policy returns stable machine-readable reason codes with
+              suggested fixes.</p>
+          </article>
+          <article>
+            <h3>Blast-radius simulation</h3>
+            <p>Risky writes can be measured inside a timed transaction before any commit.</p>
+          </article>
+          <article>
+            <h3>Approval gates</h3>
+            <p>Large or contradictory writes are held with an approval id and
+              require an operator token.</p>
+          </article>
+          <article>
+            <h3>Audit visibility</h3>
+            <p>Async JSONL audit logs include decisions, classifications, and queue health.</p>
+          </article>
+          <article>
+            <h3>Undo protection</h3>
+            <p>Reversible writes capture before/after images; unsupported shapes
+              are blocked by default.</p>
+          </article>
         </div>
       </section>
 
-      <section class="differentiation">
-        <div class="section-kicker">What it is not</div>
+      <section class="section differentiation reveal">
+        <div class="section-kicker">Focused category</div>
+        <h2>Not database version control. Not migrations. Not an ORM.</h2>
         <div class="not-grid">
-          <div>Not Dolt or database version control.</div>
-          <div>Not Liquibase, Flyway, Alembic, or migration tooling.</div>
-          <div>Not an ORM or SQL generation layer.</div>
-          <div>Not a replacement database or replacement for RLS.</div>
+          <div>Not Dolt</div>
+          <div>Not Liquibase or Flyway</div>
+          <div>Not an ORM migration layer</div>
+          <div>Not a replacement database</div>
         </div>
         <p>
-          The focus is runtime AI-agent database safety for existing Postgres
-          workflows: preview, policy-check, audit, approval, and undo.
+          Vindexa is runtime safety for AI-agent database access in existing
+          Postgres workflows.
         </p>
       </section>
 
-      <section id="status" class="status">
+      <section id="status" class="section status reveal">
         <div class="status-panel">
           <div>
             <div class="section-kicker">Status</div>
-            <h2>Developer preview.</h2>
+            <h2>Production-grade problem. Developer-preview implementation.</h2>
           </div>
           <p>
-            Built for local evaluation with a seeded Postgres database and MCP
-            adapter. Not yet recommended for production without security review,
+            The interface is positioned for enterprise evaluation, but the repo
+            remains a local developer preview. Before production use, add
             least-privilege roles, durable/tamper-resistant audit storage, hosted
-            CI, and production deployment hardening.
+            CI, persistent approval state, and security review.
           </p>
         </div>
       </section>
     </main>
 
     <footer class="footer">
-      <span>Agent DB Safety</span>
+      <span>Vindexa</span>
+      <a href="https://github.com/prisharai/agent-db-safety" target="_blank" rel="noreferrer">GitHub</a>
       <a href="../README.md">Docs</a>
-      <a href="#">GitHub</a>
-      <a href="mailto:contact@example.com">Contact</a>
-      <span>The safety and undo layer for AI agents touching Postgres.</span>
+      <span>Guard the query. Keep the rollback.</span>
     </footer>
+
+    <script src="script.js"></script>
   </body>
 </html>

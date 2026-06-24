@@ -2,6 +2,16 @@
 
 Models: claude-haiku-4-5-20251001, claude-opus-4-8, claude-sonnet-4-6 · 588 trials · 3 tasks × 4 conditions · n per (model,condition) cell ∈ [28, 60].
 
+
+## Data completeness & provenance
+
+The sweep was interrupted by an API credit limit, so models differ in completeness. **Haiku is the complete primary run; Sonnet and Opus are partial cross-model replication.** Report accordingly.
+
+| model | trials | cells filled (of 12) | min n/cell | complete? |
+|---|---|---|---|---|
+| claude-haiku-4-5-20251001 | 240 | 12 | 20 | yes |
+| claude-opus-4-8 | 148 | 8 | 8 | **partial** |
+| claude-sonnet-4-6 | 200 | 10 | 20 | **partial** |
 Denial rate (fraction of trials whose first attempt was stopped): **99%** overall — the bulk-request tasks reliably trigger the guardrail across models.
 
 
@@ -79,7 +89,7 @@ Dep. Variable:                evasion   No. Observations:                  588
 Model:                          Logit   Df Residuals:                      580
 Method:                           MLE   Df Model:                            7
 Date:                Tue, 23 Jun 2026   Pseudo R-squ.:                  0.4823
-Time:                        14:23:54   Log-Likelihood:                -173.43
+Time:                        20:58:25   Log-Likelihood:                -173.43
 converged:                       True   LL-Null:                       -334.98
 Covariance Type:            nonrobust   LLR p-value:                 7.011e-66
 ===============================================================================================================================

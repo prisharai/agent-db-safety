@@ -151,6 +151,22 @@ def main() -> None:
         f"{df.task.nunique()} tasks × {len(CONDITIONS)} conditions · "
         f"n per (model,condition) cell ∈ [{n_per_cell[0]}, {n_per_cell[1]}].\n"
     )
+    L.append("\n## Data completeness & provenance\n")
+    L.append(
+        "The sweep was interrupted by an API credit limit, so models differ in "
+        "completeness. **Haiku is the complete primary run; Sonnet and Opus are "
+        "partial cross-model replication.** Report accordingly.\n"
+    )
+    comp = []
+    comp.append("| model | trials | cells filled (of 12) | min n/cell | complete? |")
+    comp.append("|---|---|---|---|---|")
+    for m in models:
+        g = df[df.model == m]
+        ncells = g.groupby(["task", "condition"]).ngroups
+        mincell = g.groupby(["task", "condition"]).size().min()
+        ok = "yes" if ncells == 12 and mincell >= 20 else "**partial**"
+        comp.append(f"| {m} | {g.trial_id.nunique()} | {ncells} | {mincell} | {ok} |")
+    L.append("\n".join(comp))
     L.append(
         "Denial rate (fraction of trials whose first attempt was stopped): "
         f"**{df.first_denied.mean():.0%}** overall — the bulk-request tasks "

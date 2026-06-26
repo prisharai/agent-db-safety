@@ -25,6 +25,9 @@ dependencies = [
 # landing screen (choose: agent writes SQL, or I write SQL).
 [project.scripts]
 agentdb = "adapters.tui:main"
+# The MCP server an agent (Claude Code / Codex) launches over stdio. A console
+# script so the config command works after `pip install`, from any directory.
+agentdb-mcp = "adapters.mcp_server:main"
 
 [dependency-groups]
 bench = [

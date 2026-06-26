@@ -254,42 +254,65 @@ MCP tools exposed by the server:
 
 ## Connect it to your agent (MCP)
 
-The server speaks MCP over stdio, so any MCP client launches it as a subprocess.
-The client supplies the working directory and environment; the operator token
-stays in the client config, never visible to the model.
+The server speaks MCP over stdio, so the agent launches it as a subprocess. It's
+the same engine and guarantees as Human Mode — the agent just calls `run_query`
+instead of touching the database directly. The operator token stays in the
+client config, never visible to the model.
 
-**Claude Code** (run from anywhere):
+Two ways to spell the launch command in any config below:
+
+- **pip-installed:** `agentdb-mcp` (a console script; works from any directory)
+- **from source:** `uv run --directory /ABSOLUTE/PATH/TO/agent-db-safety agentdb-mcp`
+
+### Claude Code
 
 ```bash
+# pip-installed
 claude mcp add interdict \
   --env AGENT_DB_DSN=postgresql://postgres:postgres@localhost:5433/pagila \
   --env AGENT_OPERATOR_TOKEN=choose-a-secret \
-  -- uv run --directory /ABSOLUTE/PATH/TO/agent-db-safety python -m adapters.mcp_server
+  -- agentdb-mcp
+
+# from source (no install): swap the command after `--`
+claude mcp add interdict \
+  --env AGENT_DB_DSN=postgresql://postgres:postgres@localhost:5433/pagila \
+  -- uv run --directory /ABSOLUTE/PATH/TO/agent-db-safety agentdb-mcp
 ```
 
-**Claude Desktop / Cursor** (add to the client's `mcpServers` config):
+### Codex
 
-```json
-{
-  "mcpServers": {
-    "interdict": {
-      "command": "uv",
-      "args": ["run", "--directory", "/ABSOLUTE/PATH/TO/agent-db-safety",
-               "python", "-m", "adapters.mcp_server"],
-      "env": {
-        "AGENT_DB_DSN": "postgresql://postgres:postgres@localhost:5433/pagila",
-        "AGENT_OPERATOR_TOKEN": "choose-a-secret"
-      }
-    }
-  }
-}
+CLI (`codex mcp add <name> --env … -- <command>`):
+
+```bash
+codex mcp add interdict \
+  --env AGENT_DB_DSN=postgresql://postgres:postgres@localhost:5433/pagila \
+  --env AGENT_OPERATOR_TOKEN=choose-a-secret \
+  -- agentdb-mcp
 ```
+
+…or edit `~/.codex/config.toml` directly (note: the table is `mcp_servers`,
+with an underscore):
+
+```toml
+[mcp_servers.interdict]
+command = "agentdb-mcp"        # from source: command = "uv",
+                               #   args = ["run","--directory",
+                               #           "/ABSOLUTE/PATH/TO/agent-db-safety",
+                               #           "agentdb-mcp"]
+[mcp_servers.interdict.env]
+AGENT_DB_DSN = "postgresql://postgres:postgres@localhost:5433/pagila"
+AGENT_OPERATOR_TOKEN = "choose-a-secret"
+```
+
+> **PATH gotcha (Codex):** Codex launches the server with the PATH it inherits,
+> which may not include your shell's. If it can't find `agentdb-mcp`, use the
+> absolute path from `which agentdb-mcp` as `command`. Verify with `codex mcp
+> list`, then `/mcp` inside the Codex TUI.
 
 The dev Postgres (`docker compose up -d`) must be running first. Once registered,
-the agent calls `run_query` instead of touching the database directly — every
-statement is then parsed, policy-checked, simulated when risky, and recorded for
-undo. Approvals of held writes happen out-of-band via `approve_query` with the
-operator token (which the agent does not have).
+every statement the agent issues is parsed, policy-checked, simulated when risky,
+and recorded for undo. Held writes are approved out-of-band via `approve_query`
+with the operator token (which the agent does not have).
 
 ## Repo layout
 

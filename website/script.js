@@ -11,6 +11,7 @@ const runStepExpected = document.querySelector("#run-step-expected");
 const runStepNote = document.querySelector("#run-step-note");
 const copyCommand = document.querySelector(".copy-command");
 const root = document.documentElement;
+const lagItems = Array.from(document.querySelectorAll(".scroll-lag"));
 
 const runSteps = [
   {
@@ -21,45 +22,45 @@ const runSteps = [
     code:
       "pip install interdict-db\n# from source:\npip install .\n\n# Docker alternative:\ndocker compose --profile app run --rm app",
     expected:
-      "The interdict, interdict-demo, agentdb, and agentdb-mcp commands are available. The Docker path opens the launcher after the database becomes healthy.",
+      "The interdict command is available for MCP, with agentdb kept as the optional local shell. The Docker path opens the launcher after the database becomes healthy.",
     note:
       "Use interdict for agent integrations. agentdb remains the terminal launcher.",
   },
   {
     label: "Step 1",
-    title: "Launch the safety layer",
+    title: "Start the dev database",
     copy:
-      "Start the seeded Postgres fixture, then run agentdb. The landing screen asks who is writing SQL: an agent or you.",
+      "Start the seeded Postgres fixture. Interdict can also point at any Postgres database through AGENT_DB_DSN.",
     code:
-      "docker compose up -d\nagentdb\n\n# from source:\nuv sync\nuv run python -m adapters.tui",
+      "docker compose up -d\n\n# default DSN:\npostgresql://postgres:postgres@localhost:5433/pagila",
     expected:
-      "You see the Interdict launcher with Agent Mode and Human Mode choices. The default local DSN is localhost:5433/pagila.",
+      "Postgres is healthy on localhost:5433 with Pagila and large benchmark tables loaded.",
     note:
       "First Docker start seeds Pagila and large benchmark tables; later starts reuse the volume.",
   },
   {
     label: "Step 2",
-    title: "Use Human Mode",
+    title: "Put Interdict between the agent and database",
     copy:
-      "Type SQL at the prompt. Reads and scoped writes run. Risky writes show a blast-radius confirmation panel before they touch the database.",
+      "Register the MCP server. The agent calls run_query instead of receiving direct database access.",
     code:
-      "agentdb ▸ SELECT count(*) FROM clients;\nagentdb ▸ UPDATE users SET plan = 'free';\nagentdb ▸ \\override\nagentdb ▸ \\undo\nagentdb ▸ \\stats",
-    expected:
-      "Unscoped writes are blocked with a reason and fix. Confirmed writes print an undo id. Stats show blocked, held, reverted, and largest blast radius.",
-    note:
-      "Because the human is the author, override is available; it is confirmed, audited, and still undoable when the shape supports it.",
-  },
-  {
-    label: "Step 3",
-    title: "Use Agent Mode",
-    copy:
-      "Point Claude Code or Codex at Interdict's MCP server. The agent calls run_query instead of receiving raw database credentials.",
-    code:
-      "claude mcp add interdict \\\n  --env AGENT_DB_DSN=postgresql://postgres:postgres@localhost:5433/pagila \\\n  --env AGENT_OPERATOR_TOKEN=$(python -c 'import secrets; print(secrets.token_urlsafe(32))') \\\n  -- interdict\n\ncodex mcp add interdict \\\n  --env AGENT_DB_DSN=postgresql://postgres:postgres@localhost:5433/pagila \\\n  --env AGENT_OPERATOR_TOKEN=$(python -c 'import secrets; print(secrets.token_urlsafe(32))') \\\n  -- interdict",
+      "codex mcp add interdict \\\n  --env AGENT_DB_DSN=postgresql://postgres:postgres@localhost:5433/pagila \\\n  --env AGENT_OPERATOR_TOKEN=$(python -c 'import secrets; print(secrets.token_urlsafe(32))') \\\n  -- interdict",
     expected:
       "The agent can call run_query. Held writes require approve_query with an operator token the model never sees.",
     note:
-      "If Codex cannot find interdict, use the absolute path from which interdict in your MCP config.",
+      "Use the same command shape for Claude Code; the important part is that the model talks to Interdict, not Postgres.",
+  },
+  {
+    label: "Step 3",
+    title: "Optional local SQL shell",
+    copy:
+      "The product is agent-first, but the same safety engine is available as a local SQL shell for manual testing.",
+    code:
+      "agentdb\n\nagentdb ▸ SELECT count(*) FROM clients;\nagentdb ▸ \\stats\nagentdb ▸ \\undo",
+    expected:
+      "You get the same parse, simulate, block, confirm, audit, and undo behavior in a terminal.",
+    note:
+      "Human mode exists for evaluation and manual use; the main integration path is the MCP server.",
   },
   {
     label: "Step 4",
@@ -118,6 +119,43 @@ function showRunStep(index) {
   copyCommand.textContent = "Copy command";
 }
 
+function setupLagScroll() {
+  if (!lagItems.length || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    return;
+  }
+
+  root.classList.add("is-lagging");
+  let targetY = window.scrollY;
+  let currentY = targetY;
+  let rafId = null;
+
+  function tick() {
+    currentY += (targetY - currentY) * 0.085;
+    lagItems.forEach((item) => {
+      const factor = Number.parseFloat(item.style.getPropertyValue("--lag")) || 0.05;
+      item.style.setProperty("--lag-y", `${(targetY - currentY) * factor}px`);
+    });
+
+    if (Math.abs(targetY - currentY) > 0.15) {
+      rafId = window.requestAnimationFrame(tick);
+    } else {
+      currentY = targetY;
+      rafId = null;
+    }
+  }
+
+  window.addEventListener(
+    "scroll",
+    () => {
+      targetY = window.scrollY;
+      if (rafId === null) {
+        rafId = window.requestAnimationFrame(tick);
+      }
+    },
+    { passive: true }
+  );
+}
+
 async function copyRunCommand() {
   try {
     await navigator.clipboard.writeText(runStepCode.textContent);
@@ -142,3 +180,4 @@ if (window.location.hash && window.location.hash !== "#gate") {
 
 updateThemeButton();
 showRunStep(0);
+setupLagScroll();

@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Interdict — runtime safety for Postgres writes</title>
+    <title>Interdict — the runtime layer between AI agents and Postgres</title>
     <meta
       name="description"
-      content="Interdict sits between whoever writes SQL and Postgres: it previews blast radius, blocks dangerous writes, and records one-command undo."
+      content="Interdict sits between AI agents and Postgres: it previews blast radius, blocks dangerous writes, and records one-command undo."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -106,7 +106,7 @@
           <span class="enter-label">Enter</span>
         </button>
       </div>
-      <div class="gate-foot" aria-hidden="true">blast-radius preview&nbsp;·&nbsp;instant undo&nbsp;·&nbsp;~0&nbsp;ms&nbsp;overhead</div>
+      <div class="gate-foot" aria-hidden="true">ai agent guardrail&nbsp;·&nbsp;blast-radius preview&nbsp;·&nbsp;instant undo</div>
     </section>
 
     <!-- ─── Site ─────────────────────────────────────────── -->
@@ -139,32 +139,58 @@
             <use href="#halo" />
           </svg>
           <div class="hero-copy">
-            <p class="eyebrow reveal" style="--i:0">what it is</p>
-            <h2 class="hero-title reveal" style="--i:1">Permissions decide <em>who</em> may write.<br />Interdict decides <em>how&nbsp;much</em> they may break.</h2>
+            <p class="eyebrow reveal" style="--i:0">agent-native database safety</p>
+            <h2 class="hero-title reveal" style="--i:1">The missing runtime layer between <em>AI agents</em> and Postgres.</h2>
             <p class="lede reveal" style="--i:2">
-              It sits between whoever is writing SQL — an AI agent or a human — and
-              your Postgres database. Every statement is parsed, measured against
-              its real blast radius, and either allowed, held for confirmation,
-              or blocked with a fix. Allowed writes are recorded so they can be
-              undone with one command.
+              Interdict is built for the moment an autonomous agent is about to
+              touch production data. It parses every statement, measures the real
+              blast radius, then allows, holds, or blocks before Postgres is touched.
             </p>
             <div class="action-row reveal" style="--i:3">
               <a class="button primary" href="#quickstart">Run it locally</a>
               <a class="button ghost" href="https://github.com/prisharai/Interdict" target="_blank" rel="noreferrer">Read the source</a>
             </div>
             <ul class="hero-facts reveal" style="--i:4">
-              <li><b>2.3M</b> rows previewed before a delete commits</li>
+              <li><b>first</b> agent-native runtime layer for SQL blast radius + undo</li>
               <li><b>~0&nbsp;ms</b> added latency on the safe path</li>
-              <li><b>one</b> command to reverse a bad write</li>
+              <li><b>588</b> agent trials in the recovery/evasion study</li>
             </ul>
           </div>
 
-          <aside class="console hero-console reveal" style="--i:3" aria-label="Terminal example">
+          <aside class="agent-layer-visual reveal scroll-lag" style="--i:3; --lag: 0.08" aria-label="Interdict sits between AI agents and Postgres">
+            <div class="layer-node node-agent">
+              <span>AI agent</span>
+              <strong>Claude / Codex</strong>
+            </div>
+            <div class="layer-flow" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </div>
+            <div class="layer-core">
+              <span class="core-ring"></span>
+              <span class="core-ring"></span>
+              <span class="core-ring"></span>
+              <strong>Interdict</strong>
+              <em>parse · simulate · decide · undo</em>
+            </div>
+            <div class="layer-flow reverse" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </div>
+            <div class="layer-node node-db">
+              <span>Postgres</span>
+              <strong>protected data</strong>
+            </div>
+            <div class="layer-proof">
+              <b>held</b>
+              <span>DELETE would affect 2,300,000 rows</span>
+            </div>
+          </aside>
+
+          <aside class="console hero-console reveal scroll-lag" style="--i:4; --lag: 0.04" aria-label="Terminal example">
             <div class="console-bar">
               <span class="console-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-              <span class="console-title">agentdb · interdict</span>
+              <span class="console-title">agent → interdict → postgres</span>
             </div>
-            <pre><code><span class="prompt">agentdb ▸</span> UPDATE users SET plan = 'free';
+            <pre><code><span class="prompt">agent.run_query</span> UPDATE users SET plan = 'free';
 
 <span class="bad">✕ blocked — WRITE_WITHOUT_WHERE</span>
 This UPDATE has no WHERE clause; it would rewrite
@@ -193,7 +219,7 @@ every row in <span class="lav">users</span>.
               That missing layer is where real accidents live: the unscoped
               <span class="lav">UPDATE</span>, the agent that misreads its own
               task, the <span class="lav">DELETE</span> that was meant for staging.
-              Interdict is a deterministic gate for exactly that gap.
+              Interdict is the agent-native runtime layer for exactly that gap.
             </p>
           </div>
         </section>
@@ -211,7 +237,7 @@ every row in <span class="lav">users</span>.
                 <span class="console-dots" aria-hidden="true"><i></i><i></i><i></i></span>
                 <span class="console-title">1 · it blocks, with a fix</span>
               </div>
-              <pre><code><span class="prompt">agentdb ▸</span> UPDATE users SET plan='free';
+              <pre><code><span class="prompt">agent.run_query</span> UPDATE users SET plan='free';
 
 <span class="bad">blocked: true</span>
 reason: WRITE_WITHOUT_WHERE
@@ -223,7 +249,7 @@ fix: add WHERE id = … or a scope</code></pre>
                 <span class="console-dots" aria-hidden="true"><i></i><i></i><i></i></span>
                 <span class="console-title">2 · it shows the blast radius</span>
               </div>
-              <pre><code><span class="prompt">agentdb ▸</span> DELETE FROM clients
+              <pre><code><span class="prompt">agent.run_query</span> DELETE FROM clients
           WHERE active = true;
 
 <span class="warn">confirm write</span>
@@ -237,11 +263,11 @@ execute? [y/N]</code></pre>
                 <span class="console-dots" aria-hidden="true"><i></i><i></i><i></i></span>
                 <span class="console-title">3 · it puts things back</span>
               </div>
-              <pre><code><span class="prompt">agentdb ▸</span> UPDATE accounts
+              <pre><code><span class="prompt">agent.run_query</span> UPDATE accounts
           SET balance=0 WHERE id=1;
 <span class="good">✓ UPDATE 1</span>   undo_id 3811adb4
 
-<span class="prompt">agentdb ▸</span> \undo
+<span class="prompt">operator</span> revert_write(3811adb4)
 <span class="good">✓ reverted — 1 row restored</span></code></pre>
             </article>
           </div>
@@ -280,7 +306,7 @@ execute? [y/N]</code></pre>
           <div class="feature-band">
             <article class="feature"><h3>Blast-radius preview</h3><p>Impact is measured against the live database, not inferred from the SQL text.</p></article>
             <article class="feature"><h3>Instant undo</h3><p>Reverse one bad action by id — no full restore, no collateral data loss.</p></article>
-            <article class="feature"><h3>Structured rejection</h3><p>Humans get plain English; agents get reason codes and fixes they can retry against.</p></article>
+            <article class="feature"><h3>Structured rejection</h3><p>Agents get reason codes and fixes they can reason over without direct database credentials.</p></article>
             <article class="feature"><h3>Negligible overhead</h3><p>Deterministic checks run in microseconds; the benchmark reports ~0&nbsp;ms end to end.</p></article>
           </div>
         </section>
@@ -290,14 +316,14 @@ execute? [y/N]</code></pre>
           <div class="section-head">
             <p class="eyebrow">get started</p>
             <h2>Running locally in under a minute.</h2>
-            <p class="section-sub">One launcher, two modes — guard an AI agent's SQL, or your own.</p>
+            <p class="section-sub">Install the guardrail, then point your agent at the MCP server.</p>
           </div>
           <div class="runbook">
             <div class="runbook-tabs" role="tablist" aria-label="Setup steps">
               <button class="run-tab is-active" type="button" data-step="0">install</button>
               <button class="run-tab" type="button" data-step="1">launch</button>
-              <button class="run-tab" type="button" data-step="2">human mode</button>
-              <button class="run-tab" type="button" data-step="3">agent mode</button>
+              <button class="run-tab" type="button" data-step="2">agent mode</button>
+              <button class="run-tab" type="button" data-step="3">optional shell</button>
               <button class="run-tab" type="button" data-step="4">verify</button>
             </div>
             <div class="runbook-panel">
@@ -307,7 +333,7 @@ execute? [y/N]</code></pre>
                 <p id="run-step-copy">Install the MCP server, or run the Docker app profile to get Postgres and the terminal UI together.</p>
                 <div class="run-expected">
                   <span>what good looks like</span>
-                  <p id="run-step-expected">The interdict, interdict-demo, agentdb, and agentdb-mcp commands are available.</p>
+                  <p id="run-step-expected">The interdict command is available for MCP, with agentdb kept as the optional local shell.</p>
                 </div>
                 <p class="run-note" id="run-step-note">Docker alternative: docker compose --profile app run --rm app</p>
               </div>
@@ -324,19 +350,19 @@ pip install .</code></pre>
           </div>
           <div class="mode-grid">
             <article class="mode">
-              <span class="tag">human mode</span>
-              <h3>You type SQL at the prompt.</h3>
-              <p>Reads and scoped writes run. Risky writes raise a blast-radius confirm. <code>\undo</code> and <code>\revert &lt;id&gt;</code> restore specific writes; <code>\override</code> is audited.</p>
+              <span class="tag">agent-first</span>
+              <h3>The model never touches Postgres directly.</h3>
+              <p>Claude Code or Codex calls <code>run_query</code>. Interdict decides before the database sees the statement.</p>
             </article>
             <article class="mode">
-              <span class="tag">agent mode</span>
-              <h3>Claude Code or Codex calls a guarded tool.</h3>
+              <span class="tag">operator gate</span>
+              <h3>Risky writes wait outside the model loop.</h3>
               <p>Register the MCP server once. The model calls <code>run_query</code> instead of holding credentials, and approvals use an operator token it never sees.</p>
             </article>
             <article class="mode">
-              <span class="tag">savings view</span>
-              <h3>See what the layer caught.</h3>
-              <p><code>\stats</code> reports statements guarded, blocked, held, overridden, reverted — and the largest blast radius it held back.</p>
+              <span class="tag">human shell</span>
+              <h3>Available when you want it.</h3>
+              <p>The same engine powers a local SQL shell with blast-radius confirms and undo, but the product is built around autonomous agent traffic.</p>
             </article>
           </div>
         </section>
@@ -348,10 +374,10 @@ pip install .</code></pre>
             <h2>What it measures, measured locally.</h2>
           </div>
           <div class="metric-grid">
-            <article class="metric"><span>rows previewed before commit</span><strong>2.3M</strong><p>A risky write is simulated in a throwaway transaction before it touches durable state.</p></article>
-            <article class="metric"><span>added p99 latency</span><strong>~0ms</strong><p>The committed benchmark reports overhead at the noise floor, with a CI budget gate.</p></article>
-            <article class="metric"><span>automated tests</span><strong>308</strong><p>Across parser behavior, policy, simulation, audit, undo, and terminal mode.</p></article>
-            <article class="metric"><span>red-corpus false negatives</span><strong>0%</strong><p>The dangerous-SQL corpus is fully blocked locally; green-corpus false positives are 0% too.</p></article>
+            <article class="metric"><span>agent trials</span><strong>588</strong><p>Closed-loop recovery/evasion study across 3 tasks, 4 conditions, and 3 Claude model families.</p></article>
+            <article class="metric"><span>denial trigger rate</span><strong>99%</strong><p>Bulk-request tasks reliably hit the guardrail instead of silently executing broad writes.</p></article>
+            <article class="metric"><span>automated tests</span><strong>311</strong><p>Parser behavior, policy, simulation, audit redaction, undo, MCP enforcement, and terminal mode.</p></article>
+            <article class="metric"><span>red-corpus false negatives</span><strong>0%</strong><p>Dangerous SQL was fully blocked locally; green-corpus false positives were 0% too.</p></article>
           </div>
         </section>
 
@@ -360,8 +386,8 @@ pip install .</code></pre>
           <div class="status">
             <div class="status-copy">
               <p class="eyebrow">where it stands</p>
-              <h2>A developer preview built around real failure modes.</h2>
-              <p>Designed around deterministic checks, latency budgets, auditability, and fail-closed writes. Before production, review policy, role boundaries, audit durability, approval storage, and your own trigger and sequence side effects.</p>
+              <h2>The first agent-native safety layer for database writes.</h2>
+              <p>Not a dashboard. Not an ORM. Interdict is a runtime guardrail placed directly between AI agents and Postgres, built around deterministic checks, latency budgets, auditability, and fail-closed writes.</p>
             </div>
             <div class="status-actions">
               <a class="button primary" href="mailto:pr482@cornell.edu?subject=Interdict%20access">Request access</a>

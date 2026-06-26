@@ -14,62 +14,64 @@ const root = document.documentElement;
 
 const runSteps = [
   {
-    label: "Step 1",
-    title: "Install the project environment",
+    label: "Step 0",
+    title: "Install Interdict",
     copy:
-      "Start from the repository root and install exactly from the lockfile. This keeps the parser, MCP server, benchmark tools, and tests on the same versions used by the repo.",
-    code: "cd /Users/prishar/agent-db-safety\nuv sync --frozen",
+      "Install the launcher once. If you are evaluating from this repo today, install from source. If you want the app and Postgres together, use the Docker profile.",
+    code:
+      "pip install agent-db-safety\n# from source today:\npip install .\n\n# Docker alternative:\ndocker compose --profile app run --rm app",
     expected:
-      "Dependencies install from uv.lock without changing the lockfile. If uv reports dependency drift, stop and inspect the diff before continuing.",
+      "The agentdb and agentdb-mcp commands are available. The Docker path opens the launcher after the database becomes healthy.",
     note:
-      "Requires Docker and uv. The command should finish without editing dependencies.",
+      "The package exposes two entrypoints: agentdb for the terminal launcher, and agentdb-mcp for agent integrations.",
+  },
+  {
+    label: "Step 1",
+    title: "Launch the safety layer",
+    copy:
+      "Start the seeded Postgres fixture, then run agentdb. The landing screen asks who is writing SQL: an agent or you.",
+    code:
+      "docker compose up -d\nagentdb\n\n# from source:\nuv sync\nuv run python -m adapters.tui",
+    expected:
+      "You see the Interdict launcher with Agent Mode and Human Mode choices. The default local DSN is localhost:5433/pagila.",
+    note:
+      "First Docker start seeds Pagila and large benchmark tables; later starts reuse the volume.",
   },
   {
     label: "Step 2",
-    title: "Start the seeded Postgres fixture",
+    title: "Use Human Mode",
     copy:
-      "The local database runs Pagila plus generated benchmark tables. It listens on host port 5433 and gives Interdict real tables to classify, simulate, audit, and undo against.",
+      "Type SQL at the prompt. Reads and scoped writes run. Risky writes show a blast-radius confirmation panel before they touch the database.",
     code:
-      "docker compose up -d\n\ndocker exec -it agent-db-safety-pg \\\n  psql -U postgres -d pagila",
+      "agentdb ▸ SELECT count(*) FROM clients;\nagentdb ▸ UPDATE users SET plan = 'free';\nagentdb ▸ \\override\nagentdb ▸ \\undo\nagentdb ▸ \\stats",
     expected:
-      "The container becomes healthy, psql connects to pagila, and seeded tables are available for real policy and simulation checks.",
+      "Unscoped writes are blocked with a reason and fix. Confirmed writes print an undo id. Stats show blocked, held, reverted, and largest blast radius.",
     note:
-      "The first start can take a minute or two because seed data is generated. Later starts reuse the Docker volume.",
+      "Because the human is the author, override is available; it is confirmed, audited, and still undoable when the shape supports it.",
   },
   {
     label: "Step 3",
-    title: "Run the scripted safety demo",
+    title: "Use Agent Mode",
     copy:
-      "This is the fastest proof that the product works locally: it blocks an unsafe write, simulates risky impact, writes audit records, and demonstrates undo for a reversible write.",
-    code: "uv run python -m examples.demo",
+      "Point Claude Code or Codex at Interdict's MCP server. The agent calls run_query instead of receiving raw database credentials.",
+    code:
+      "claude mcp add interdict \\\n  --env AGENT_DB_DSN=postgresql://postgres:postgres@localhost:5433/pagila \\\n  --env AGENT_OPERATOR_TOKEN=choose-a-secret \\\n  -- agentdb-mcp\n\ncodex mcp add interdict \\\n  --env AGENT_DB_DSN=postgresql://postgres:postgres@localhost:5433/pagila \\\n  --env AGENT_OPERATOR_TOKEN=choose-a-secret \\\n  -- agentdb-mcp",
     expected:
-      "The mass update is denied, a scoped risky write is simulated or held for approval, and a reversible write returns an undo_action_id.",
+      "The agent can call run_query. Held writes require approve_query with an operator token the model never sees.",
     note:
-      "Look for blocked=true, requires_confirmation, simulation rows, and undo_action_id in the output.",
+      "If Codex cannot find agentdb-mcp, use the absolute path from which agentdb-mcp in your MCP config.",
   },
   {
     label: "Step 4",
-    title: "Expose Interdict to an agent",
+    title: "Verify before trusting changes",
     copy:
-      "Start the MCP server. An agent should call run_query through Interdict instead of receiving raw database credentials. Human approval uses an operator token.",
-    code:
-      "AGENT_OPERATOR_TOKEN=dev-token \\\n  uv run python -m adapters.mcp_server",
-    expected:
-      "Your MCP client can call run_query and receives structured decisions instead of raw database execution results.",
-    note:
-      "Register this command in Claude Code, Claude Desktop, Cursor, or another MCP client.",
-  },
-  {
-    label: "Step 5",
-    title: "Verify safety and latency gates",
-    copy:
-      "Run the test suite and benchmark gate before trusting changes. The tests cover parser edge cases, policy, simulation, undo, enforcement, and research utilities.",
+      "Run tests and the latency gate before changing policy behavior or the request path. The value of this product depends on both correctness and negligible overhead.",
     code:
       "uv run pytest\nuv run ruff check .\nuv run black --check .\nuv run python -m benchmarks.ci_latency_gate",
     expected:
-      "Tests pass, formatting checks pass, and the latency gate stays under the committed local budget.",
+      "The test suite passes and the benchmark gate remains under the committed p99 latency budget.",
     note:
-      "The benchmark is local and hardware-sensitive, but it catches regressions in the pass-through latency budget.",
+      "The benchmark is local and hardware-sensitive, but it is the guardrail for the ~0 ms overhead claim.",
   },
 ];
 
@@ -109,9 +111,11 @@ function updateBlossomDrift() {
 
 function showRunStep(index) {
   const step = runSteps[index];
+
   runTabs.forEach((tab, tabIndex) => {
     tab.classList.toggle("is-active", tabIndex === index);
   });
+
   runStepLabel.textContent = step.label;
   runStepTitle.textContent = step.title;
   runStepCopy.textContent = step.copy;

@@ -57,6 +57,9 @@ dev = [
     "ruff>=0.5,<1.0",
     "black>=24,<26",
     "sqlalchemy>=2.0.51",
+    # Research-only: cross-provider agent backend for the study harness. Never
+    # imported by engine/ or adapters/ -- only research/agents.py:OpenAIAgent.
+    "openai>=1.40",
     "pandas>=3.0.3",
     "statsmodels>=0.14.6",
     "matplotlib>=3.11.0",

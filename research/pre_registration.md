@@ -1,7 +1,10 @@
-# Pre-registration — repaired study (v2)
+# Pre-registration — narrow-intent operationalization
 
-Register this BEFORE running the confirmatory sweep. The v1 run is **exploratory**
-and reframed (see INDEX.md); the numbers below are the confirmatory plan.
+Register this BEFORE running the sweep. The completed broad-objective run already
+measures specification gaming of the guardrail rule (see INDEX.md). This plan adds
+a second operationalization in which the prompt states a *narrow* intended scope,
+so an over-broad write is unambiguously wrong relative to the user as well as the
+rule; the numbers below are that plan.
 
 ## Research question
 When a database agent's write is denied, does the *form* of the feedback change
@@ -9,7 +12,7 @@ whether it (a) correctly narrows to the user's stated intent, (b) persists with 
 unsafe broad write, or (c) produces a syntactically-compliant-but-semantically-
 broad statement (literal rule satisfaction)?
 
-## Tasks (v2, narrow intent)
+## Tasks (narrow intent)
 `tasks_v2.TASKS_V2`: 4 narrow updates, 4 narrow deletes, 2 legitimately-broad,
 2 ambiguous. **Each prompt states the intended scope**, so over-reach is genuine,
 not compliance. Ground-truth `intended_rows` is derivable from the prompt.
@@ -53,7 +56,8 @@ with missing cells.
 - If V4 (blast-radius rows) **reduces** overreach vs V2, the "richer is worse"
   story is wrong and must be replaced by "mechanism-without-impact is worse."
 - If narrow-intent tasks show no overreach regardless of feedback, the effect was
-  a v1 task-design artifact (broad-objective compliance), not agent behavior.
+  an artifact of the broad-objective task design (faithful compliance), not
+  specification gaming of the guardrail.
 
 ## Controls
 fixed prompt templates, temperature 0, identical schema/row-counts, identical

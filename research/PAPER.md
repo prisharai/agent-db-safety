@@ -15,65 +15,118 @@ limitations / reproducibility material. Pair it with:
 
 ## Working title
 
-*Naming the Rule Teaches the Bypass: How Denial Richness Shapes Recovery and
-Evasion in Database Agents* (alt: *Feedback as Recon*).
+*Specification Gaming in Database Guardrails: How Denial Feedback Elicits
+Literal Rule Satisfaction in LLM Agents* (alt: *Satisfying the Rule, Not the
+Intent*).
+
+## Framing note (read first)
+
+This paper does **not** claim to discover a new phenomenon. The behavior we study
+is **specification gaming** (a.k.a. reward hacking, and in the closed-loop
+feedback setting, *in-context reward hacking*): an agent satisfies the literal
+terms of a specification while violating its purpose. This is well documented in
+the literature (DeepMind's specification-gaming work; the ICML 2024 in-context
+reward-hacking study of feedback loops; the chess-engine specification-gaming
+demonstrations across frontier models). Our contribution is narrower and honest:
+we show specification gaming occurs in a **new, high-stakes domain — runtime
+database guardrails** — driven by a specific mechanism (**the content of the
+denial feedback**), and we provide an **instrument that detects it automatically**
+at the database layer by measuring the actual row-level impact of each write
+rather than inspecting its syntax. Prior demonstrations of this behavior
+generally required manual inspection or an obvious behavioral failure to detect;
+the gaming move here is syntactically valid SQL that passes a rule check, so it is
+invisible to syntactic guardrails and only surfaces under impact measurement.
+
+Use only established terminology throughout: *specification gaming*, *reward
+hacking*, *in-context reward hacking*, *literal (syntactic) rule satisfaction*,
+*tautological / vacuously-true predicate*, *row-level impact* / *number of
+affected rows*, *pre-execution (counterfactual) simulation*. Do **not** introduce
+coined terms.
 
 ## Abstract (template — fill bracketed values from `RESULTS_STUDY.md`)
 
-> Autonomous LLM agents increasingly issue database writes behind pre-execution
-> guardrails that block risky actions and explain why. We ask whether the
-> *richness* of those explanations changes the agent's next move — does a more
-> informative denial help the agent recover, or teach it to evade? Using a
-> runtime safety engine that **simulates each write to measure its true blast
-> radius**, we run [N] closed-loop trials across [M] frontier models and four
-> denial-richness conditions (opaque error → reason code → reason+fix →
-> +blast-radius). We find that [naming the violated rule increased evasion from
-> X% to Y% (OR=[..], p=[..])], driven by **scope-theater** — adding a
-> trivially-true `WHERE` that satisfies the stated rule while still affecting
-> every row — an evasion only detectable by measuring blast radius, not by
-> inspecting SQL syntax. [The effect was {stronger/weaker} in more capable
-> models.] We argue guardrail feedback for agents should be designed as
-> *behavioral* rather than *mechanistic*, and release the instrument and dataset.
+> Specification gaming — an agent satisfying the letter of a rule while defeating
+> its purpose — is well documented in reinforcement-learning and, more recently,
+> in closed-loop LLM settings (in-context reward hacking). We study it in a new and
+> consequential domain: **runtime database guardrails**, where an LLM agent's SQL
+> writes are screened by a pre-execution policy that blocks unsafe statements and
+> returns an explanation. We ask whether the *content* of that explanation changes
+> the agent's next move. Using a safety engine that measures each write's true
+> **row-level impact** via counterfactual execution (`BEGIN; … ; ROLLBACK`), we run
+> [N] closed-loop trials across [M] frontier models and four feedback conditions of
+> increasing richness (opaque error → reason code → reason + suggested fix →
+> + measured affected-row count). We find that [naming the violated rule increased
+> rule-gaming from X% to Y% (OR=[..], p=[..])]: rather than narrowing the write,
+> the agent re-issues a statement with a **vacuously-true predicate** (e.g.
+> `WHERE 1=1`) that satisfies the named rule while still affecting every row — a
+> move detectable only by impact measurement, not syntax. [The effect was
+> {stronger/weaker} in more capable models.] We argue guardrail feedback for agents
+> should describe the *behavior expected* rather than the *rule to be satisfied*,
+> and we release the detection instrument and dataset.
 
 ## 1. Introduction — the gap and the contributions
 
-Two fast-moving literatures bracket the moment an agent's write is denied but
-neither covers it:
+Specification gaming is a known and studied failure mode of optimizing agents: a
+system maximizes the measured objective while violating the designer's intent.
+Recent work shows it arises *in context* for LLM agents inside closed feedback
+loops — the agent reads an error or reward signal at test time and adapts toward
+satisfying it literally. What is **not** yet studied is this behavior at the
+**database-guardrail boundary**, the exact point where an autonomous agent's
+write is screened, blocked, and explained before it can commit. Two adjacent
+literatures bracket this moment but neither covers it:
+
 - **LLM self-correction** finds models improve mainly with *reliable external
-  feedback*, not self-reflection.
+  feedback*, not intrinsic self-reflection — but studies feedback as a help signal,
+  not as a specification an agent may game.
 - **Agent safety** is moving from output moderation to *step-level, pre-execution*
-  guardrails that explain and gate tool calls.
+  guardrails that explain and gate tool calls — but treats the explanation as
+  purely beneficial, not as something that can reshape the agent's next attempt.
 
-Open question, in a database setting: does a **richer** denial make the agent
-*recover faster* or *evade more strategically*? Contributions:
+Open question, in a database setting: when the denial is *richer* (it names the
+violated rule, suggests a fix, or reports impact), does the agent **narrow the
+write to the intended scope**, or does it **satisfy the rule literally while
+preserving the unsafe effect** — i.e. game the specification? Contributions:
 
-1. **A question and an instrument.** We present a controlled study of
-   denial-richness effects on agent database behavior, with a released harness.
-   (Verify the "to our knowledge first" framing with a literature pass before any
-   primacy claim.)
-2. **A blast-radius-based evasion measure.** We define and detect *scope-theater*
-   (a `WHERE` that passes syntactic checks but still hits the whole table) — only
-   measurable because the engine simulates the write.
+1. **Specification gaming in a new domain, measured.** We present a controlled,
+   closed-loop study of specification gaming at the runtime database-guardrail
+   boundary, isolating the *content of the denial* as the manipulated variable.
+   (State novelty as "to our knowledge, the first measurement *in this domain*,"
+   never as discovering the phenomenon.)
+2. **An automatic detection instrument.** The gaming move is syntactically valid
+   SQL that passes a rule check; it is invisible to syntactic inspection. We detect
+   it by measuring each write's actual **row-level impact** via counterfactual
+   execution, distinguishing a genuinely narrowed write from one bearing a
+   tautological predicate.
 3. **An empirical finding with a design implication.** [Naming the rule increased
-   evasion]; we recommend guardrail messages name the *behavior expected*, not the
-   *rule violated*.
+   literal rule satisfaction]; we recommend guardrail messages describe the
+   *expected behavior* (e.g. "restrict this to the rows you intend; broad changes
+   require approval") rather than the *rule to satisfy* (e.g. "add a WHERE clause").
 
 ## 2. Related work (sections to write, with what to cite)
 
-- **LLM self-correction / self-refine with external feedback** — position our
-  "denial" as a specific, reliable external signal; contrast intrinsic reflection.
+- **Specification gaming & reward hacking** (DeepMind specification-gaming
+  taxonomy; classic RL reward-hacking results) — establish the phenomenon and its
+  definition; make explicit that we *apply* it, not discover it.
+- **In-context reward hacking / feedback loops** (the ICML 2024 study of feedback
+  loops inducing in-context reward hacking; agentic specification-gaming
+  demonstrations such as the chess-engine studies across o-series, R1, GPT-4o,
+  Claude) — these are our closest neighbors; our database-guardrail setting is a new
+  instance of the same loop (agent reads the block, adapts to satisfy it literally).
+  Naming the violated rule is, in their terms, telling the agent that normal play
+  will not work.
+- **LLM self-correction / self-refine with external feedback** — position the
+  denial as a specific, reliable external signal; contrast the help framing with the
+  specification-to-game framing.
 - **Tool-using-agent safety / step-level guardrails / pre-execution gating** —
   situate the runtime DB guardrail; contrast output moderation.
-- **Text-to-SQL** (Spider/BIRD) — note this body studies *correctness*, not
-  *destructiveness* or *denial response*; our axis is orthogonal.
-- **Guardrail evasion / jailbreaks / specification gaming & reward hacking** —
-  frame scope-theater as specification gaming against a stated rule; contrast
-  content-moderation jailbreaks (different surface: SQL semantics, not prompts).
-- **Blast-radius / impact estimation & reversibility for data systems** — position
-  the simulator + undo as the enabling instrument.
+- **Text-to-SQL** (Spider/BIRD) — this body studies *correctness*, not
+  *destructiveness* or *response to denial*; our axis is orthogonal.
+- **Impact estimation & reversibility for data systems** — position the
+  row-level-impact simulation + reversible writes as the enabling instrument.
 
-(Do a fresh literature pass; the novelty claim should be stated as "to our
-knowledge" with these neighbors explicitly distinguished.)
+(Do a fresh literature pass; the novelty claim is *domain + automatic detection*,
+explicitly distinguished from the prior work above, and stated as "to our
+knowledge.")
 
 ## 3. The instrument (system under test = measurement apparatus)
 

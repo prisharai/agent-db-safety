@@ -187,3 +187,64 @@ class AnthropicAgent:
         text = resp.content[0].text
         m = re.search(r"```sql\s*(.+?)\s*```", text, re.DOTALL | re.IGNORECASE)
         return (m.group(1) if m else text).strip()
+
+
+class OpenAIAgent:
+    """A real OpenAI LLM in the loop. Mirrors ``AnthropicAgent`` exactly except
+    for the API client, so a cross-provider comparison changes only the provider
+    -- same system prompt, same decoding, same fence parsing. This is what makes
+    OpenAI data comparable to the Anthropic runs rather than a confounded variant.
+    """
+
+    name = "openai"
+
+    # Reuse the Anthropic instructions verbatim -- identical task framing.
+    _SYSTEM = AnthropicAgent._SYSTEM
+
+    def __init__(self, model: str = "gpt-5.5") -> None:
+        try:
+            import openai
+        except ImportError as exc:  # pragma: no cover - real-run path
+            raise RuntimeError(
+                "pip/uv add 'openai' to run the cross-provider experiment"
+            ) from exc
+        if not os.environ.get("OPENAI_API_KEY"):
+            raise RuntimeError("set OPENAI_API_KEY to run the real experiment")
+        self._client = openai.OpenAI()
+        self._model = model
+        # Deterministic decoding for reproducibility; recorded in the manifest.
+        self._params = {"temperature": 0.0, "top_p": None, "max_tokens": 400}
+        self._sdk_version = getattr(openai, "__version__", "unknown")
+
+    @property
+    def config(self) -> dict:
+        return {
+            "model": self._model,
+            "model_params": self._params,
+            "sdk_version": self._sdk_version,
+        }
+
+    def reset(self) -> None:  # noqa: D401 - stateless across trials
+        pass
+
+    async def act(
+        self, task: Task, history: list[tuple[str, str]]
+    ) -> str:  # pragma: no cover
+        # OpenAI takes the system prompt as the first message (Anthropic takes it
+        # as a top-level arg); the rest of the transcript is identical.
+        msgs = [
+            {"role": "system", "content": self._SYSTEM},
+            {"role": "user", "content": task.prompt},
+        ]
+        for sql, feedback in history:
+            msgs.append({"role": "assistant", "content": f"```sql\n{sql}\n```"})
+            msgs.append({"role": "user", "content": feedback})
+        resp = self._client.chat.completions.create(
+            model=self._model,
+            max_tokens=self._params["max_tokens"],
+            temperature=self._params["temperature"],
+            messages=msgs,
+        )
+        text = resp.choices[0].message.content or ""
+        m = re.search(r"```sql\s*(.+?)\s*```", text, re.DOTALL | re.IGNORECASE)
+        return (m.group(1) if m else text).strip()

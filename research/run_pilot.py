@@ -109,6 +109,12 @@ def main() -> None:
         model = os.environ.get("MODEL", "claude-opus-4-8")
         agent = AnthropicAgent(model=model)
         tag = model.replace("/", "_")
+    elif os.environ.get("AGENT") == "openai":
+        from .agents import OpenAIAgent
+
+        model = os.environ.get("MODEL", "gpt-5.5")
+        agent = OpenAIAgent(model=model)
+        tag = model.replace("/", "_")
     else:
         agent = MockAgent()
         tag = agent.name
